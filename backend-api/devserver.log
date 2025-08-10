@@ -1,0 +1,4 @@
+Watching for file changes with StatReloader
+[09/Aug/2025 17:15:31] "POST /api/alerts HTTP/1.1" 201 237
+[09/Aug/2025 17:15:33] "POST /api/alerts/1/locations HTTP/1.1" 201 11
+[09/Aug/2025 17:15:33] "GET /api/alerts/1 HTTP/1.1" 200 346

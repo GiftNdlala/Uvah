@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # Django Backend API
+  backend:
+    build: ./backend-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend-api/.env.example
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/safehood
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend-api:/app
+    networks:
+      - safehood-network
+
+  # PostgreSQL Database
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=safehood
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - safehood-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d safehood"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Redis for WebSocket and caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - safehood-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  # Nginx reverse proxy (for production)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - safehood-network
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  safehood-network:
+    driver: bridge

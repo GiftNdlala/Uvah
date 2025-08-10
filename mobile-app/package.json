@@ -1,0 +1,13 @@
+{
+  "name": "safehood-mobile",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start": "react-native start",
+    "android": "react-native run-android"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.74.3"
+  }
+}
