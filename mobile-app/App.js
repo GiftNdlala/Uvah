@@ -65,14 +65,35 @@ export default function App() {
     else await Linking.openURL(`sms:&body=${text}`);
   };
 
+  // Ngifikile (Check-In) implementation
+  const checkIn = async () => {
+    setError('');
+    try {
+      const lat = -26.2041 + Math.random() * 0.001;
+      const lon = 28.0473 + Math.random() * 0.001;
+      await postJson('/api/alerts', {
+        severity_level: 1,
+        trigger_count: 1,
+        trigger_source: 'checkin',
+        message: 'Ngifikile!'
+      });
+      setError('Check-in sent!');
+    } catch (e) {
+      setError(String(e.message || e));
+    }
+  };
+
   return (
     <View style={styles.container}>
       {!alert ? (
         <>
-          <Text style={styles.title}>SafeHood</Text>
-          <Text style={styles.subtitle}>Local dev build</Text>
+          <Text style={styles.title}>Uvah?</Text>
+          <Text style={styles.subtitle}>Where are you? — Township Safety & Location</Text>
           <TouchableOpacity style={styles.btn} onPress={startSOS}>
             <Text style={styles.btnText}>Start SOS</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.btn, styles.checkin]} onPress={checkIn}>
+            <Text style={styles.btnText}>Ngifikile (Check-In)</Text>
           </TouchableOpacity>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Text style={styles.hint}>
@@ -117,6 +138,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,
+    marginTop: 8,
+  },
+  checkin: {
+    backgroundColor: '#2196f3',
     marginTop: 8,
   },
   cancel: { backgroundColor: '#444' },
