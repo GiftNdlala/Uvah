@@ -28,9 +28,9 @@ It is **not** tied to community patrol structures — instead, it's about:
   - Add location to alert (`/api/alerts/<id>/locations`)
   - Get alert details + latest location (`/api/alerts/<id>`)
   - Live location polling (`/api/live/<token>/latest`)
-  - **Live Map Webpage:** Real-time location for an alert (Leaflet.js)
+  - **Live Map Webpage:** Real-time location for an alert (Leaflet.js + OpenStreetMap tiles)
   - **Admin Panel:** Manage alerts and locations
-  - **Database:** PostgreSQL (uvahdb) with Docker support
+  - **Database:** SQLite for development; PostgreSQL when `DATABASE_URL` is set (Supabase-ready)
   - **Docker:** Containerized deployment ready
 
 #### 2. **Mobile App** ✅
@@ -45,6 +45,35 @@ It is **not** tied to community patrol structures — instead, it's about:
 - **docker-compose.yml** with PostgreSQL and Redis (configured but not fully utilized)
 - **Requirements:** Django 4.2+, DRF, CORS, PostgreSQL support
 - **Virtual Environment:** Python 3.11 with all dependencies installed
+
+---
+
+## 🔑 Key Decisions & Project Conventions
+
+- **Repository model (monorepo)**: Keep `backend-api/`, `mobile-app/`, and add `web-admin/` (React/Next.js) in this repo for now. Split later if needed.
+- **Backend shared across clients**: Single Django REST API serves mobile app and web admin. Public live-view page remains under backend (`/live/<token>/`).
+- **Auth**:
+  - **Method**: Phone-number + OTP verification + JWT (access/refresh).
+  - **Backend**: Re-enable `users` app, set `AUTH_USER_MODEL`, include `api/users/` routes, and enforce RBAC for admin endpoints.
+  - **Frontend**: Mobile and web admin will send `Authorization: Bearer <token>`; refresh tokens handled client-side.
+- **Maps**:
+  - **Mobile**: Use `react-native-maps` with **Google Maps SDK for Android** and **Google Maps SDK for iOS**.
+  - **Web (live page)**: Keep Leaflet + OpenStreetMap for now; no Google Maps JS API required unless we migrate.
+  - **Web (admin)**: If a Google map is preferred, enable **Google Maps JavaScript API**; otherwise reuse Leaflet.
+  - **API keys**: Separate keys per platform with proper restrictions (Android package + SHA‑1, iOS bundle ID, and HTTP referrers for web).
+- **Database**:
+  - **Dev**: SQLite (sufficient for developing/testing auth and alerts).
+  - **Prod**: PostgreSQL via `DATABASE_URL` (Supabase-ready). Add PostGIS when geofences/heatmaps/proximity queries are needed.
+- **Realtime**:
+  - **Now**: HTTP polling for live view (`/api/live/<token>/latest`).
+  - **Planned**: Django Channels or Server-Sent Events for admin/operator consoles and richer live tracking.
+- **Admin web (scope)**:
+  - Roles/permissions, user management, alerts console (status changes, assignment), live tracking map, contacts visibility, notifications, analytics, audit logs, settings (escalation/geofences/data retention/API keys).
+  - Suggested stack: Next.js + React Query + a component library (MUI/Ant) + TanStack Table + Zod + react-hook-form.
+- **API surface alignment**:
+  - Implement missing endpoints used by mobile: `GET /api/alerts/my-alerts/`, `POST /api/alerts/<id>/cancel/`.
+  - Enable `users` routes expected by mobile: profile and emergency contacts.
+  - Ensure CORS allows admin and Metro origins; add auth headers in mobile and admin.
 
 ---
 
