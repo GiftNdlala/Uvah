@@ -10,6 +10,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { apiFetch } from '../../api/client';
 
 const { width } = Dimensions.get('window');
 
@@ -100,6 +101,14 @@ const HomeScreen = ({ navigation }) => {
             timestamp: new Date().toISOString(),
           }),
         });
+
+        // In-app friends location share (latest location)
+        try {
+          await apiFetch('/api/social/location/update/', {
+            method: 'POST',
+            body: { lat, lon, accuracy: 20 },
+          });
+        } catch (_) {}
       } catch (error) {
         console.log('Location update failed:', error);
       }

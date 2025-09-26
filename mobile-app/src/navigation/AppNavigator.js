@@ -3,6 +3,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View } from 'react-native'; // Added missing import for Text and View
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import FriendsMapScreen from '../screens/main/FriendsMapScreen';
 
 // Import screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -11,6 +13,7 @@ import HomeScreen from '../screens/main/HomeScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 import ContactsScreen from '../screens/main/ContactsScreen';
 import AlertsScreen from '../screens/main/AlertsScreen';
+import FriendDetailScreen from '../screens/main/FriendDetailScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -41,12 +44,22 @@ const MainTabNavigator = () => {
         }}
       />
       <Tab.Screen
-        name="Contacts"
+        name="Friends"
         component={ContactsScreen}
         options={{
-          tabBarLabel: 'Contacts',
+          tabBarLabel: 'Friends',
           tabBarIcon: ({ color, size }) => (
             <Text style={{ color, fontSize: size }}>👥</Text>
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Map"
+        component={FriendsMapScreen}
+        options={{
+          tabBarLabel: 'Map',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ color, fontSize: size }}>🗺️</Text>
           ),
         }}
       />
@@ -80,20 +93,16 @@ const AppNavigator = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // TODO: Check if user is authenticated (check stored tokens)
     checkAuthStatus();
   }, []);
 
   const checkAuthStatus = async () => {
     try {
-      // Demo mode - bypass authentication check
-      // TODO: Restore authentication check when ready for production
-      setTimeout(() => {
-        setIsAuthenticated(false); // Start with login screen for demo
-        setIsLoading(false);
-      }, 1000);
+      const token = await AsyncStorage.getItem('uvah_access_token');
+      setIsAuthenticated(!!token);
     } catch (error) {
       setIsAuthenticated(false);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -109,11 +118,16 @@ const AppNavigator = () => {
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {/* Auth Stack */}
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Register" component={RegisterScreen} />
-        {/* Main App Stack - accessible directly for demo */}
-        <Stack.Screen name="MainApp" component={MainTabNavigator} />
+        {isAuthenticated ? (
+          <Stack.Screen name="MainApp" component={MainTabNavigator} />
+        ) : (
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="MainApp" component={MainTabNavigator} />
+            <Stack.Screen name="FriendDetail" component={FriendDetailScreen} />
+          </>
+        )}
       </Stack.Navigator>
     </NavigationContainer>
   );

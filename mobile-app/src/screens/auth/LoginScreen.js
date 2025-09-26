@@ -9,14 +9,35 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiFetch, setTokens } from '../../api/client';
 
 const LoginScreen = ({ navigation }) => {
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [otp, setOtp] = useState('');
-  const [showOtpInput, setShowOtpInput] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const BASE_URL = 'http://192.168.0.100:8000'; // TODO: replace with your laptop LAN IP
+  const handleLogin = async () => {
+    if (!username || !password) {
+      Alert.alert('Error', 'Enter username and password');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/accounts/auth/login/', {
+        method: 'POST',
+        body: { username, password },
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.tokens?.access) throw new Error(data?.detail || 'Login failed');
+      await setTokens({ access: data.tokens.access, refresh: data.tokens.refresh });
+      navigation.replace('MainApp');
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSendOtp = async () => {
     // Static demo - bypass OTP verification
@@ -49,52 +70,33 @@ const LoginScreen = ({ navigation }) => {
         </Text>
 
         <View style={styles.form}>
-          <Text style={styles.label}>Phone Number</Text>
+          <Text style={styles.label}>Username</Text>
           <TextInput
             style={styles.input}
-            placeholder="+27 82 123 4567"
-            value={phoneNumber}
-            onChangeText={setPhoneNumber}
-            keyboardType="phone-pad"
-            editable={!showOtpInput}
+            placeholder="your-username"
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
           />
-
-          {!showOtpInput ? (
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={handleSendOtp}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.primaryButtonText}>Send OTP</Text>
-              )}
-            </TouchableOpacity>
-          ) : (
-            <>
-              <Text style={styles.label}>Enter OTP</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="123456"
-                value={otp}
-                onChangeText={setOtp}
-                keyboardType="numeric"
-                maxLength={6}
-              />
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={handleVerifyOtp}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>Verify OTP</Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
+          <Text style={styles.label}>Password</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="••••••••"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.primaryButtonText}>Sign In</Text>
+            )}
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.secondaryButton}
@@ -106,13 +108,8 @@ const LoginScreen = ({ navigation }) => {
           </TouchableOpacity>
 
           {/* Demo Mode Button */}
-          <TouchableOpacity
-            style={styles.demoButton}
-            onPress={() => navigation.replace('MainApp')}
-          >
-            <Text style={styles.demoButtonText}>
-              🚀 Demo Mode - Skip to App
-            </Text>
+          <TouchableOpacity style={styles.demoButton} onPress={() => navigation.replace('MainApp')}>
+            <Text style={styles.demoButtonText}>🚀 Demo Mode - Skip to App</Text>
           </TouchableOpacity>
         </View>
       </View>

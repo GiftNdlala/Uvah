@@ -9,9 +9,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { apiFetch } from '../../api/client';
 
 const ContactsScreen = ({ navigation }) => {
-  const [contacts, setContacts] = useState([]);
+  const [friends, setFriends] = useState([]);
+  const [incoming, setIncoming] = useState([]);
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const BASE_URL = 'http://192.168.0.100:8000'; // TODO: replace with your laptop LAN IP
@@ -23,131 +27,70 @@ const ContactsScreen = ({ navigation }) => {
   const loadContacts = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/users/emergency-contacts/`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          // TODO: Add Authorization header with JWT token
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setContacts(data);
-      } else {
-        // For now, use mock data
-        setContacts([
-          {
-            id: 1,
-            name: 'Jane Doe',
-            phone: '+27 82 987 6543',
-            relationship: 'Spouse',
-            is_verified: true,
-          },
-          {
-            id: 2,
-            name: 'John Smith',
-            phone: '+27 82 555 1234',
-            relationship: 'Friend',
-            is_verified: false,
-          },
-        ]);
-      }
-    } catch (error) {
-      console.log('Error loading contacts:', error);
-      // Use mock data on error
-      setContacts([
-        {
-          id: 1,
-          name: 'Jane Doe',
-          phone: '+27 82 987 6543',
-          relationship: 'Spouse',
-          is_verified: true,
-        },
-        {
-          id: 2,
-          name: 'John Smith',
-          phone: '+27 82 555 1234',
-          relationship: 'Friend',
-          is_verified: false,
-        },
+      const [friendsRes, incomingRes] = await Promise.all([
+        apiFetch(`/api/social/friends/`),
+        apiFetch(`/api/social/friends/requests/incoming/`),
       ]);
+      const friendsData = friendsRes.ok ? await friendsRes.json() : [];
+      const incomingData = incomingRes.ok ? await incomingRes.json() : [];
+      setFriends(friendsData);
+      setIncoming(incomingData);
+    } catch (error) {
+      console.log('Error loading friends:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddContact = () => {
-    navigation.navigate('AddContact');
-  };
-
-  const handleEditContact = (contact) => {
-    navigation.navigate('EditContact', { contact });
-  };
-
-  const handleDeleteContact = (contact) => {
-    Alert.alert(
-      'Delete Contact',
-      `Are you sure you want to delete ${contact.name}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => deleteContact(contact.id) },
-      ]
-    );
-  };
-
-  const deleteContact = async (contactId) => {
+  const searchUsers = async () => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
     try {
-      const response = await fetch(`${BASE_URL}/api/users/emergency-contacts/${contactId}/`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          // TODO: Add Authorization header
-        },
-      });
-
-      if (response.ok) {
-        setContacts(prev => prev.filter(c => c.id !== contactId));
-        Alert.alert('Success', 'Contact deleted successfully');
-      } else {
-        Alert.alert('Error', 'Failed to delete contact');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Network error. Please try again.');
+      const res = await apiFetch(`/api/social/users/search/?q=${encodeURIComponent(query.trim())}`);
+      const data = res.ok ? await res.json() : [];
+      setSearchResults(data);
+    } catch (e) {
+      console.log('search error', e);
     }
   };
 
-  const handleVerifyContact = (contact) => {
-    Alert.alert(
-      'Verify Contact',
-      `Send verification message to ${contact.name}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Send', onPress: () => sendVerification(contact) },
-      ]
-    );
+  const sendInvite = async (username) => {
+    try {
+      const res = await apiFetch(`/api/social/friends/requests/send/`, {
+        method: 'POST',
+        body: { to_username: username },
+      });
+      if (res.ok) Alert.alert('Sent', 'Friend request sent');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to send request');
+    }
   };
 
-  const sendVerification = async (contact) => {
+  const respondInvite = async (requestId, action) => {
     try {
-      const response = await fetch(`${BASE_URL}/api/users/verify-contact/`, {
+      const res = await apiFetch(`/api/social/friends/requests/${requestId}/respond/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // TODO: Add Authorization header
-        },
-        body: JSON.stringify({
-          contact_id: contact.id,
-        }),
+        body: { action },
       });
-
-      if (response.ok) {
-        Alert.alert('Success', 'Verification message sent to contact');
-      } else {
-        Alert.alert('Error', 'Failed to send verification');
+      if (res.ok) {
+        loadContacts();
       }
-    } catch (error) {
-      Alert.alert('Error', 'Network error. Please try again.');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to respond');
+    }
+  };
+
+  const toggleShare = async (friendUsername, isActive) => {
+    try {
+      const res = await apiFetch(`/api/social/live-share/toggle/`, {
+        method: 'POST',
+        body: { viewer_username: friendUsername, is_active: isActive },
+      });
+      if (res.ok) Alert.alert('Updated', isActive ? 'Sharing enabled' : 'Sharing disabled');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to update sharing');
     }
   };
 
@@ -170,62 +113,76 @@ const ContactsScreen = ({ navigation }) => {
       </View>
       
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Emergency Contacts</Text>
-        <TouchableOpacity style={styles.addButton} onPress={handleAddContact}>
-          <Text style={styles.addButtonText}>+ Add</Text>
-        </TouchableOpacity>
+          <Text style={styles.headerTitle}>Friends</Text>
       </View>
 
       <ScrollView style={styles.content}>
-        {contacts.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>No emergency contacts yet</Text>
-            <Text style={styles.emptyStateSubtext}>
-              Add trusted people who will be notified in emergencies
-            </Text>
-            <TouchableOpacity style={styles.emptyStateButton} onPress={handleAddContact}>
-              <Text style={styles.emptyStateButtonText}>Add First Contact</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          contacts.map((contact) => (
-            <View key={contact.id} style={styles.contactCard}>
-              <View style={styles.contactInfo}>
-                <Text style={styles.contactName}>{contact.name}</Text>
-                <Text style={styles.contactPhone}>{contact.phone}</Text>
-                <Text style={styles.contactRelationship}>{contact.relationship}</Text>
-                <View style={styles.verificationStatus}>
-                  <Text style={[
-                    styles.verificationText,
-                    { color: contact.is_verified ? '#4caf50' : '#ff9800' }
-                  ]}>
-                    {contact.is_verified ? '✓ Verified' : '⚠ Pending Verification'}
-                  </Text>
+        {/* Incoming Requests */}
+        {incoming.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>Incoming Requests</Text>
+            {incoming.map((req) => (
+              <View key={req.id} style={styles.requestRow}>
+                <Text style={styles.requestText}>{req.from_user?.username}</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity style={styles.acceptBtn} onPress={() => respondInvite(req.id, 'accept')}>
+                    <Text style={styles.btnText}>Accept</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.rejectBtn} onPress={() => respondInvite(req.id, 'reject')}>
+                    <Text style={styles.btnText}>Reject</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-              
+            ))}
+          </View>
+        )}
+
+        {/* Search */}
+        <View style={styles.section}>
+          <Text style={styles.sectionHeader}>Find Friends</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="Search username"
+              placeholderTextColor="#888"
+              value={query}
+              onChangeText={setQuery}
+            />
+            <TouchableOpacity style={styles.addButton} onPress={searchUsers}>
+              <Text style={styles.addButtonText}>Search</Text>
+            </TouchableOpacity>
+          </View>
+          {searchResults.map(u => (
+            <View key={u.id} style={styles.resultRow}>
+              <Text style={styles.resultText}>@{u.username}</Text>
+              <TouchableOpacity style={styles.inviteBtn} onPress={() => sendInvite(u.username)}>
+                <Text style={styles.btnText}>Invite</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+
+        {/* Friends List */}
+        {friends.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>No friends yet</Text>
+            <Text style={styles.emptyStateSubtext}>Search by username to add friends</Text>
+          </View>
+        ) : (
+          friends.map((fr) => (
+            <View key={fr.id} style={styles.contactCard}>
+              <View style={styles.contactInfo}>
+                <Text style={styles.contactName}>@{fr.friend?.username}</Text>
+              </View>
               <View style={styles.contactActions}>
-                {!contact.is_verified && (
-                  <TouchableOpacity
-                    style={styles.verifyButton}
-                    onPress={() => handleVerifyContact(contact)}
-                  >
-                    <Text style={styles.verifyButtonText}>Verify</Text>
-                  </TouchableOpacity>
-                )}
-                
-                <TouchableOpacity
-                  style={styles.editButton}
-                  onPress={() => handleEditContact(contact)}
-                >
-                  <Text style={styles.editButtonText}>Edit</Text>
+                <TouchableOpacity style={styles.verifyButton} onPress={() => navigation.navigate('FriendDetail', { username: fr.friend?.username })}>
+                  <Text style={styles.verifyButtonText}>Details</Text>
                 </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => handleDeleteContact(contact)}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
+                <TouchableOpacity style={styles.editButton} onPress={() => toggleShare(fr.friend?.username, true)}>
+                  <Text style={styles.editButtonText}>Share</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => toggleShare(fr.friend?.username, false)}>
+                  <Text style={styles.deleteButtonText}>Stop</Text>
                 </TouchableOpacity>
               </View>
             </View>
