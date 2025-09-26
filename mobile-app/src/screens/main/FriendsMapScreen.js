@@ -1,7 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import React, { useEffect, useState, useMemo } from 'react';
+import { View, Text, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { apiFetch } from '../../api/client';
+
+const initialRegion = {
+  latitude: -26.2041,
+  longitude: 28.0473,
+  latitudeDelta: 0.08,
+  longitudeDelta: 0.08,
+};
 
 const FriendsMapScreen = () => {
   const [locations, setLocations] = useState([]);
@@ -21,46 +29,53 @@ const FriendsMapScreen = () => {
     return () => clearInterval(id);
   }, []);
 
+  const region = useMemo(() => {
+    if (!locations || locations.length === 0) return initialRegion;
+    const first = locations[0];
+    return {
+      latitude: Number(first.lat) || initialRegion.latitude,
+      longitude: Number(first.lon) || initialRegion.longitude,
+      latitudeDelta: 0.08,
+      longitudeDelta: 0.08,
+    };
+  }, [locations]);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Friends Locations</Text>
+        <Text style={styles.title}>Friends Map</Text>
       </View>
-      <ScrollView
-        style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
+      <MapView
+        provider={PROVIDER_GOOGLE}
+        style={styles.map}
+        initialRegion={region}
+        region={region}
       >
-        {locations.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No shared locations yet</Text>
-            <Text style={styles.subText}>Ask friends to enable in-app sharing</Text>
-          </View>
-        ) : (
-          locations.map((loc) => (
-            <View key={loc.user?.id} style={styles.card}>
-              <Text style={styles.username}>@{loc.user?.username}</Text>
-              <Text style={styles.coords}>Lat {Number(loc.lat).toFixed(5)}, Lon {Number(loc.lon).toFixed(5)}</Text>
-              <Text style={styles.time}>{new Date(loc.updated_at).toLocaleString()}</Text>
-            </View>
-          ))
-        )}
-      </ScrollView>
+        {locations.map((loc) => (
+          <Marker
+            key={loc.user?.id}
+            coordinate={{ latitude: Number(loc.lat), longitude: Number(loc.lon) }}
+            title={`@${loc.user?.username}`}
+            description={`Updated ${new Date(loc.updated_at).toLocaleTimeString()}`}
+          />
+        ))}
+      </MapView>
+      <View style={styles.footer}>
+        <Text style={styles.footerText} onPress={() => { setRefreshing(true); load(); }}>
+          Pull to refresh in map is not supported — tap to refresh now
+        </Text>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111' },
-  header: { paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#333' },
-  title: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  content: { flex: 1, padding: 16 },
-  emptyState: { alignItems: 'center', paddingTop: 60 },
-  emptyText: { color: '#fff', fontSize: 16, marginBottom: 6 },
-  subText: { color: '#aaa' },
-  card: { backgroundColor: '#222', padding: 16, borderRadius: 12, marginBottom: 12 },
-  username: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 6 },
-  coords: { color: '#6cf', marginBottom: 4 },
-  time: { color: '#999', fontSize: 12 },
+  header: { paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#333' },
+  title: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  map: { flex: 1 },
+  footer: { padding: 10, backgroundColor: '#111', borderTopWidth: 1, borderTopColor: '#333' },
+  footerText: { color: '#6cf', textAlign: 'center' },
 });
 
 export default FriendsMapScreen;
