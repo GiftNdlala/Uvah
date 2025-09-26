@@ -6,6 +6,8 @@ from .views import (
     RespondFriendRequestView,
     FriendsListView,
     ToggleLiveShareView,
+    UpdateMyLocationView,
+    FriendsLocationsView,
 )
 
 
@@ -16,5 +18,7 @@ urlpatterns = [
     path('friends/requests/<int:request_id>/respond/', RespondFriendRequestView.as_view(), name='friend-respond'),
     path('friends/', FriendsListView.as_view(), name='friends-list'),
     path('live-share/toggle/', ToggleLiveShareView.as_view(), name='live-share-toggle'),
+    path('location/update/', UpdateMyLocationView.as_view(), name='location-update'),
+    path('location/friends/', FriendsLocationsView.as_view(), name='friends-locations'),
 ]
 

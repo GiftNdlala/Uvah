@@ -36,3 +36,15 @@ class LiveShare(models.Model):
     class Meta:
         unique_together = ('owner', 'viewer')
 
+
+class UserLocation(models.Model):
+    """
+    Latest known location per user for in-app sharing.
+    """
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='last_location')
+    lat = models.FloatField()
+    lon = models.FloatField()
+    accuracy = models.FloatField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+

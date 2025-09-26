@@ -21,6 +21,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'alerts',
+    'accounts',
+    'social',
 ]
 
 MIDDLEWARE = [
@@ -114,7 +116,7 @@ CORS_ALLOWED_ORIGINS = [
 # REST Framework Configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'users.authentication.PhoneNumberJWTAuthentication',
+        'accounts.authentication.SimpleJWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [

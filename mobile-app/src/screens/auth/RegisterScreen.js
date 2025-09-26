@@ -10,19 +10,37 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { apiFetch, setTokens } from '../../api/client';
 
 const RegisterScreen = ({ navigation }) => {
   const [formData, setFormData] = useState({
-    phoneNumber: '',
-    firstName: '',
-    lastName: '',
-    email: '',
-    emergencyContact: '',
-    emergencyContactPhone: '',
+    username: '',
+    password: '',
   });
   const [loading, setLoading] = useState(false);
 
-  const BASE_URL = 'http://192.168.0.100:8000'; // TODO: replace with your laptop LAN IP
+  const submit = async () => {
+    if (!formData.username || !formData.password) {
+      Alert.alert('Error', 'Enter a username and password');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/accounts/auth/register/', {
+        method: 'POST',
+        body: { username: formData.username, password: formData.password },
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.tokens?.access) throw new Error(data?.detail || 'Registration failed');
+      await setTokens({ access: data.tokens.access, refresh: data.tokens.refresh });
+      Alert.alert('Welcome', 'Account created successfully');
+      navigation.replace('MainApp');
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -64,65 +82,29 @@ const RegisterScreen = ({ navigation }) => {
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.sectionTitle}>Personal Information</Text>
-          
-          <Text style={styles.label}>Phone Number *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="+27 82 123 4567"
-            value={formData.phoneNumber}
-            onChangeText={(value) => handleInputChange('phoneNumber', value)}
-            keyboardType="phone-pad"
-          />
+          <Text style={styles.sectionTitle}>Account</Text>
 
-          <Text style={styles.label}>First Name *</Text>
+          <Text style={styles.label}>Username</Text>
           <TextInput
             style={styles.input}
-            placeholder="Enter your first name"
-            value={formData.firstName}
-            onChangeText={(value) => handleInputChange('firstName', value)}
-          />
-
-          <Text style={styles.label}>Last Name *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your last name"
-            value={formData.lastName}
-            onChangeText={(value) => handleInputChange('lastName', value)}
-          />
-
-          <Text style={styles.label}>Email (Optional)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="your.email@example.com"
-            value={formData.email}
-            onChangeText={(value) => handleInputChange('email', value)}
-            keyboardType="email-address"
+            placeholder="your-username"
+            value={formData.username}
+            onChangeText={(value) => handleInputChange('username', value)}
             autoCapitalize="none"
           />
 
-          <Text style={styles.sectionTitle}>Emergency Contact</Text>
-          
-          <Text style={styles.label}>Contact Name *</Text>
+          <Text style={styles.label}>Password</Text>
           <TextInput
             style={styles.input}
-            placeholder="Emergency contact name"
-            value={formData.emergencyContact}
-            onChangeText={(value) => handleInputChange('emergencyContact', value)}
-          />
-
-          <Text style={styles.label}>Contact Phone *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="+27 82 123 4567"
-            value={formData.emergencyContactPhone}
-            onChangeText={(value) => handleInputChange('emergencyContactPhone', value)}
-            keyboardType="phone-pad"
+            placeholder="••••••••"
+            value={formData.password}
+            onChangeText={(value) => handleInputChange('password', value)}
+            secureTextEntry
           />
 
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={handleRegister}
+            onPress={submit}
             disabled={loading}
           >
             {loading ? (

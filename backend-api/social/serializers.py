@@ -1,6 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
-from .models import FriendRequest, Friendship, LiveShare
+from .models import FriendRequest, Friendship, LiveShare, UserLocation
 
 
 User = get_user_model()
@@ -36,4 +36,13 @@ class LiveShareSerializer(serializers.ModelSerializer):
     class Meta:
         model = LiveShare
         fields = ['id', 'owner', 'viewer', 'is_active', 'created_at']
+
+
+class UserLocationSerializer(serializers.ModelSerializer):
+    user = PublicUserSerializer(read_only=True)
+
+    class Meta:
+        model = UserLocation
+        fields = ['user', 'lat', 'lon', 'accuracy', 'updated_at']
+
 

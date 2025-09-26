@@ -5,8 +5,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.authentication import SimpleJWTAuthentication
-from .models import FriendRequest, Friendship, LiveShare
-from .serializers import FriendRequestSerializer, FriendshipSerializer, PublicUserSerializer, LiveShareSerializer
+from .models import FriendRequest, Friendship, LiveShare, UserLocation
+from .serializers import FriendRequestSerializer, FriendshipSerializer, PublicUserSerializer, LiveShareSerializer, UserLocationSerializer
 
 
 User = get_user_model()
@@ -113,4 +113,36 @@ class ToggleLiveShareView(APIView):
         ls.is_active = is_active
         ls.save()
         return Response(LiveShareSerializer(ls).data)
+
+
+class UpdateMyLocationView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SimpleJWTAuthentication]
+
+    def post(self, request):
+        lat = request.data.get('lat')
+        lon = request.data.get('lon')
+        accuracy = request.data.get('accuracy')
+        if lat is None or lon is None:
+            return Response({'detail': 'lat and lon are required'}, status=400)
+        loc, _ = UserLocation.objects.get_or_create(user=request.user)
+        loc.lat = float(lat)
+        loc.lon = float(lon)
+        if accuracy is not None:
+            loc.accuracy = float(accuracy)
+        loc.save()
+        return Response({'ok': True})
+
+
+class FriendsLocationsView(generics.ListAPIView):
+    serializer_class = UserLocationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SimpleJWTAuthentication]
+
+    def get_queryset(self):
+        friend_ids = Friendship.objects.filter(user=self.request.user).values_list('friend_id', flat=True)
+        # Only include friends who have granted live share to requester
+        allowed_ids = LiveShare.objects.filter(viewer=self.request.user, is_active=True).values_list('owner_id', flat=True)
+        allowed_friend_ids = set(friend_ids).intersection(set(allowed_ids))
+        return UserLocation.objects.filter(user_id__in=allowed_friend_ids)
 
