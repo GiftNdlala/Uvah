@@ -175,6 +175,9 @@ const ContactsScreen = ({ navigation }) => {
                 <Text style={styles.contactName}>@{fr.friend?.username}</Text>
               </View>
               <View style={styles.contactActions}>
+                <TouchableOpacity style={styles.verifyButton} onPress={() => navigation.navigate('FriendDetail', { username: fr.friend?.username })}>
+                  <Text style={styles.verifyButtonText}>Details</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.editButton} onPress={() => toggleShare(fr.friend?.username, true)}>
                   <Text style={styles.editButtonText}>Share</Text>
                 </TouchableOpacity>

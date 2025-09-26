@@ -13,6 +13,7 @@ import HomeScreen from '../screens/main/HomeScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 import ContactsScreen from '../screens/main/ContactsScreen';
 import AlertsScreen from '../screens/main/AlertsScreen';
+import FriendDetailScreen from '../screens/main/FriendDetailScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -124,6 +125,7 @@ const AppNavigator = () => {
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
             <Stack.Screen name="MainApp" component={MainTabNavigator} />
+            <Stack.Screen name="FriendDetail" component={FriendDetailScreen} />
           </>
         )}
       </Stack.Navigator>
