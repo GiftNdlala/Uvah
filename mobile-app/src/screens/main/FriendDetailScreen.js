@@ -1,10 +1,21 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import ScreenShell from '../../components/ScreenShell';
 import { apiFetch } from '../../api/client';
+import { parseApiListResponse } from '../../utils/apiData';
+import { palette, radius, typography } from '../../theme/tokens';
 
-const FriendDetailScreen = ({ route, navigation }) => {
-  const username = route?.params?.username || '';
+const FriendDetailScreen = ({ route }) => {
+  const username = route?.params?.username || 'friend';
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [location, setLocation] = useState(null);
@@ -12,10 +23,10 @@ const FriendDetailScreen = ({ route, navigation }) => {
   const load = useCallback(async () => {
     try {
       const res = await apiFetch('/api/social/location/friends/');
-      const data = res.ok ? await res.json() : [];
-      const match = data.find((l) => l.user?.username?.toLowerCase() === username.toLowerCase());
+      const data = await parseApiListResponse(res);
+      const match = data.find((item) => item.user?.username?.toLowerCase() === username.toLowerCase());
       setLocation(match || null);
-    } catch (e) {
+    } catch (_) {
       setLocation(null);
     } finally {
       setLoading(false);
@@ -24,11 +35,10 @@ const FriendDetailScreen = ({ route, navigation }) => {
   }, [username]);
 
   useEffect(() => {
-    navigation.setOptions?.({ headerShown: true, title: `@${username}` });
     load();
     const id = setInterval(load, 8000);
     return () => clearInterval(id);
-  }, [load, navigation, username]);
+  }, [load]);
 
   const toggleShare = async (isActive) => {
     try {
@@ -36,79 +46,140 @@ const FriendDetailScreen = ({ route, navigation }) => {
         method: 'POST',
         body: { viewer_username: username, is_active: isActive },
       });
-      if (!res.ok) throw new Error('Failed to update sharing');
-      Alert.alert('Updated', isActive ? 'Sharing enabled' : 'Sharing disabled');
-    } catch (e) {
-      Alert.alert('Error', e.message);
+      if (!res.ok) throw new Error('Failed');
+      Alert.alert('Updated', isActive ? 'Sharing enabled.' : 'Sharing disabled.');
+    } catch (_) {
+      Alert.alert('Not ready yet', 'Sharing toggle endpoint still needs backend wiring.');
     }
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <ActivityIndicator color="#6cf" />
-          <Text style={styles.loadingText}>Loading friend…</Text>
+      <ScreenShell>
+        <View style={styles.centered}>
+          <ActivityIndicator color={palette.accent} />
+          <Text style={styles.loadingText}>Loading friend details</Text>
         </View>
-      </SafeAreaView>
+      </ScreenShell>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <ScreenShell>
       <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={palette.accent} />}
       >
+        <Text style={styles.title}>@{username}</Text>
+        <Text style={styles.subtitle}>Live sharing controls and latest known location.</Text>
+
         <View style={styles.card}>
-          <Text style={styles.username}>@{username}</Text>
+          <Text style={styles.cardTitle}>Sharing Controls</Text>
           <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.primary} onPress={() => toggleShare(true)}>
+            <TouchableOpacity style={styles.enableBtn} onPress={() => toggleShare(true)}>
               <Text style={styles.btnText}>Enable Share</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.danger} onPress={() => toggleShare(false)}>
+            <TouchableOpacity style={styles.disableBtn} onPress={() => toggleShare(false)}>
               <Text style={styles.btnText}>Disable Share</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Friend’s Latest Location</Text>
+          <Text style={styles.cardTitle}>Latest Location</Text>
           {location ? (
             <>
-              <Text style={styles.locationLine}>Lat: {Number(location.lat).toFixed(6)}</Text>
-              <Text style={styles.locationLine}>Lon: {Number(location.lon).toFixed(6)}</Text>
-              {location.accuracy != null && (
+              <Text style={styles.locationLine}>Latitude: {Number(location.lat).toFixed(6)}</Text>
+              <Text style={styles.locationLine}>Longitude: {Number(location.lon).toFixed(6)}</Text>
+              {location.accuracy != null ? (
                 <Text style={styles.locationSub}>Accuracy: {Number(location.accuracy).toFixed(0)} m</Text>
-              )}
-              <Text style={styles.locationTime}>{new Date(location.updated_at).toLocaleString()}</Text>
+              ) : null}
+              <Text style={styles.locationSub}>Updated: {new Date(location.updated_at).toLocaleString()}</Text>
             </>
           ) : (
-            <Text style={styles.muted}>No in-app sharing from this friend yet.</Text>
+            <Text style={styles.emptyText}>No live location available from this friend yet.</Text>
           )}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </ScreenShell>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#111' },
-  content: { padding: 16 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { color: '#ccc', marginTop: 12 },
-  card: { backgroundColor: '#222', borderRadius: 12, padding: 16, marginBottom: 16 },
-  username: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
-  actionsRow: { flexDirection: 'row', gap: 12 },
-  primary: { backgroundColor: '#4caf50', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
-  danger: { backgroundColor: '#e53935', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
-  btnText: { color: '#fff', fontWeight: '600' },
-  sectionTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 10 },
-  locationLine: { color: '#6cf', fontSize: 14 },
-  locationSub: { color: '#aaa', marginTop: 4 },
-  locationTime: { color: '#888', marginTop: 8, fontSize: 12 },
-  muted: { color: '#aaa' },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: palette.text,
+    marginTop: 8,
+  },
+  title: {
+    color: palette.text,
+    fontSize: 32,
+    fontFamily: typography.display,
+    marginTop: 14,
+  },
+  subtitle: {
+    color: palette.textMuted,
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  card: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 14,
+    marginBottom: 12,
+  },
+  cardTitle: {
+    color: palette.text,
+    fontSize: 16,
+    fontFamily: typography.heading,
+    marginBottom: 10,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  enableBtn: {
+    flex: 1,
+    borderRadius: radius.md,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#214f3a',
+    borderWidth: 1,
+    borderColor: '#3f7961',
+  },
+  disableBtn: {
+    flex: 1,
+    borderRadius: radius.md,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#5d2f37',
+    borderWidth: 1,
+    borderColor: '#904a55',
+  },
+  btnText: {
+    color: palette.text,
+    fontFamily: typography.heading,
+  },
+  locationLine: {
+    color: palette.info,
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  locationSub: {
+    color: palette.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  emptyText: {
+    color: palette.textMuted,
+  },
 });
 
 export default FriendDetailScreen;
-

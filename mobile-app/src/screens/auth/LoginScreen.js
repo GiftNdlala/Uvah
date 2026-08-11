@@ -1,204 +1,227 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import { ActivityIndicator, ImageBackground, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiFetch, setTokens } from '../../api/client';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { apiFetch, clearTokens, setDemoMode, setTokens } from '../../api/client';
+import { palette, radius, typography } from '../../theme/tokens';
+import ScreenShell from '../../components/ScreenShell';
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleLogin = async () => {
-    if (!username || !password) {
-      Alert.alert('Error', 'Enter username and password');
+    if (!username.trim() || !password.trim()) {
+      setError('Please enter username and password.');
       return;
     }
+
     setLoading(true);
+    setError('');
+
     try {
       const res = await apiFetch('/api/accounts/auth/login/', {
         method: 'POST',
-        body: { username, password },
+        body: { username: username.trim(), password },
       });
       const data = await res.json();
-      if (!res.ok || !data?.tokens?.access) throw new Error(data?.detail || 'Login failed');
+      if (!res.ok || !data?.tokens?.access) {
+        throw new Error(data?.detail || 'Login failed.');
+      }
+      await setDemoMode(false);
       await setTokens({ access: data.tokens.access, refresh: data.tokens.refresh });
       navigation.replace('MainApp');
     } catch (e) {
-      Alert.alert('Error', e.message);
+      setError(e.message || 'Could not log in.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSendOtp = async () => {
-    // Static demo - bypass OTP verification
-    setShowOtpInput(true);
-    Alert.alert('Demo Mode', 'OTP verification bypassed for demo purposes');
-  };
-
-  const handleVerifyOtp = async () => {
-    // Static demo - bypass authentication
-    if (!otp || otp.length !== 6) {
-      Alert.alert('Demo Mode', 'Please enter any 6-digit number for demo');
-      return;
-    }
-    
-    // Navigate directly to main app for demo
-    navigation.replace('MainApp');
-  };
-
-  const handleRegister = () => {
-    navigation.navigate('Register');
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>Uvah?</Text>
-        <Text style={styles.subtitle}>Where are you?</Text>
-        <Text style={styles.description}>
-          Township Safety & Location Sharing
-        </Text>
+    <ScreenShell scroll showBrand={false} contentContainerStyle={styles.shellContent}>
+      <View style={styles.backgroundWrap}>
+        <ImageBackground
+          source={require('../../../assets/images/Uvah_logo.png')}
+          style={styles.loginBackground}
+          imageStyle={styles.loginBackgroundImage}
+        >
+          <View style={styles.loginOverlay} />
+        </ImageBackground>
 
-        <View style={styles.form}>
+        <SafeAreaView edges={['top']} style={styles.loginContent}>
+        <View style={styles.hero}>
+          <Text style={styles.brand}>UVAH</Text>
+          <Text style={styles.tagline}>Safety + location, made local.</Text>
+        </View>
+
+        <View style={styles.formStack}>
+          <Text style={styles.sectionTitle}>Welcome back</Text>
+
           <Text style={styles.label}>Username</Text>
           <TextInput
             style={styles.input}
-            placeholder="your-username"
+            placeholder="your username"
+            placeholderTextColor={palette.textMuted}
+            autoCapitalize="none"
             value={username}
             onChangeText={setUsername}
-            autoCapitalize="none"
           />
+
           <Text style={styles.label}>Password</Text>
           <TextInput
             style={styles.input}
-            placeholder="••••••••"
+            placeholder="your password"
+            placeholderTextColor={palette.textMuted}
+            secureTextEntry
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
           />
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Sign In</Text>
-            )}
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <TouchableOpacity style={styles.cta} onPress={handleLogin} disabled={loading} activeOpacity={0.9}>
+            {loading ? <ActivityIndicator color={palette.text} /> : <Text style={styles.ctaText}>Sign In</Text>}
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.linkBtn} onPress={() => navigation.navigate('Register')}>
+            <Text style={styles.linkText}>Create a new account</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={handleRegister}
+            style={styles.demoBtn}
+            onPress={async () => {
+              await clearTokens();
+              await setDemoMode(true);
+              navigation.replace('MainApp');
+            }}
           >
-            <Text style={styles.secondaryButtonText}>
-              New user? Create account
-            </Text>
-          </TouchableOpacity>
-
-          {/* Demo Mode Button */}
-          <TouchableOpacity style={styles.demoButton} onPress={() => navigation.replace('MainApp')}>
-            <Text style={styles.demoButtonText}>🚀 Demo Mode - Skip to App</Text>
+            <Icon name="flash" size={16} color={palette.text} />
+            <Text style={styles.demoText}>Continue in Demo Mode</Text>
           </TouchableOpacity>
         </View>
+        </SafeAreaView>
       </View>
-    </SafeAreaView>
+    </ScreenShell>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#111',
+  shellContent: {
+    flexGrow: 1,
+    paddingBottom: 26,
   },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 30,
+  backgroundWrap: {
+    marginTop: 0,
+    borderRadius: 0,
+    overflow: 'hidden',
+    borderWidth: 0,
+    minHeight: 740,
+    backgroundColor: 'transparent',
   },
-  title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 10,
+  loginBackground: {
+    ...StyleSheet.absoluteFillObject,
   },
-  subtitle: {
-    fontSize: 24,
-    color: '#6cf',
-    marginBottom: 5,
+  loginBackgroundImage: {
+    opacity: 0.98,
   },
-  description: {
-    fontSize: 16,
-    color: '#ccc',
-    marginBottom: 40,
-    textAlign: 'center',
+  loginOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0)',
   },
-  form: {
-    width: '100%',
-    maxWidth: 300,
+  loginContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 18,
+  },
+  hero: {
+    marginTop: 28,
+    marginBottom: 20,
+  },
+  brand: {
+    color: palette.text,
+    fontFamily: typography.display,
+    fontSize: 50,
+    letterSpacing: 1.2,
+    textShadowColor: 'rgba(0, 0, 0, 0.45)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 9,
+  },
+  tagline: {
+    color: '#dceeff',
+    marginTop: 4,
+    fontSize: 15,
+  },
+  formStack: {
+    marginTop: 8,
+    padding: 18,
+  },
+  sectionTitle: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    fontSize: 22,
+    marginBottom: 18,
   },
   label: {
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 8,
-    fontWeight: '500',
+    color: palette.textMuted,
+    fontSize: 13,
+    marginBottom: 6,
   },
   input: {
-    backgroundColor: '#333',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 20,
+    backgroundColor: 'rgba(20, 38, 59, 0.55)',
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#555',
-  },
-  primaryButton: {
-    backgroundColor: '#e53935',
-    borderRadius: 8,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  secondaryButton: {
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  secondaryButtonText: {
-    color: '#6cf',
-    fontSize: 16,
-  },
-  demoButton: {
-    backgroundColor: '#4caf50',
-    borderRadius: 8,
+    borderColor: 'rgba(97, 201, 255, 0.36)',
+    color: palette.text,
+    paddingHorizontal: 12,
     paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 20,
-    borderWidth: 2,
-    borderColor: '#45a049',
-  },
-  demoButtonText: {
-    color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    marginBottom: 14,
+  },
+  error: {
+    color: palette.danger,
+    marginBottom: 8,
+    fontSize: 13,
+  },
+  cta: {
+    marginTop: 2,
+    backgroundColor: palette.accent,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  ctaText: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    fontSize: 16,
+  },
+  linkBtn: {
+    marginTop: 14,
+    alignItems: 'center',
+  },
+  linkText: {
+    color: palette.info,
+    fontSize: 14,
+  },
+  demoBtn: {
+    marginTop: 16,
+    minHeight: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: 'rgba(24, 49, 73, 0.62)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    flexDirection: 'row',
+  },
+  demoText: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    fontSize: 14,
   },
 });
 

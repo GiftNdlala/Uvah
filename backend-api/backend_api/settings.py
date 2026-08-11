@@ -5,6 +5,9 @@ import dj_database_url
 
 load_dotenv()
 
+# SQLite WAL + busy timeout (dev); imported for connection_created signal
+import backend_api.sqlite  # noqa: F401
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-me')
@@ -45,6 +48,7 @@ TEMPLATES = [
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],
@@ -73,6 +77,9 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {
+                'timeout': 20,
+            },
         }
     }
 
@@ -102,6 +109,9 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # CORS Configuration
@@ -112,6 +122,14 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8081",  # React Native Metro bundler
     "http://127.0.0.1:8081",
 ] if not DEBUG else []
+
+# CSRF trusted origins for local development and mobile (adb reverse via 9000)
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:9000",
+    "http://127.0.0.1:9000",
+] if DEBUG else os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if os.getenv('CSRF_TRUSTED_ORIGINS') else []
 
 # REST Framework Configuration
 REST_FRAMEWORK = {
@@ -152,4 +170,4 @@ if not DEBUG:
     X_FRAME_OPTIONS = 'DENY'
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+    SECURE_HSTS_PRELOAD = Tru

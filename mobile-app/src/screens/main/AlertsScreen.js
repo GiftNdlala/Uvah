@@ -1,530 +1,278 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
   ActivityIndicator,
-  Linking,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/Ionicons';
+import ScreenShell from '../../components/ScreenShell';
+import { apiFetch } from '../../api/client';
+import { parseApiList } from '../../utils/apiData';
+import { palette, radius, typography } from '../../theme/tokens';
 
 const AlertsScreen = ({ navigation }) => {
   const [alerts, setAlerts] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState('all'); // all, active, completed
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState('all');
 
-  const BASE_URL = 'http://192.168.0.100:8000'; // TODO: replace with your laptop LAN IP
+  const loadAlerts = async () => {
+    try {
+      const response = await apiFetch('/api/alerts/my-alerts/');
+      if (response.ok) {
+        const data = await response.json();
+        setAlerts(parseApiList(data));
+      } else {
+        setAlerts([]);
+      }
+    } catch (_) {
+      setAlerts([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     loadAlerts();
   }, []);
 
-  const loadAlerts = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/alerts/my-alerts/`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          // TODO: Add Authorization header with JWT token
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setAlerts(data);
-      } else {
-        // For now, use mock data
-        setAlerts([
-          {
-            id: 1,
-            severity_level: 2,
-            trigger_source: 'app',
-            message: 'Emergency SOS activated',
-            status: 'active',
-            created_at: '2024-01-15T10:30:00Z',
-            share_url: 'http://192.168.0.100:8000/live/abc123',
-            locations: [
-              { lat: -26.2041, lon: 28.0473, timestamp: '2024-01-15T10:30:00Z' }
-            ]
-          },
-          {
-            id: 2,
-            severity_level: 1,
-            trigger_source: 'checkin',
-            message: 'Ngifikile! (I have arrived)',
-            status: 'completed',
-            created_at: '2024-01-14T15:45:00Z',
-            share_url: 'http://192.168.0.100:8000/live/def456',
-            locations: [
-              { lat: -26.2041, lon: 28.0473, timestamp: '2024-01-14T15:45:00Z' }
-            ]
-          },
-          {
-            id: 3,
-            severity_level: 2,
-            trigger_source: 'app',
-            message: 'Emergency SOS activated',
-            status: 'completed',
-            created_at: '2024-01-13T08:20:00Z',
-            share_url: 'http://192.168.0.100:8000/live/ghi789',
-            locations: [
-              { lat: -26.2041, lon: 28.0473, timestamp: '2024-01-13T08:20:00Z' }
-            ]
-          },
-        ]);
-      }
-    } catch (error) {
-      console.log('Error loading alerts:', error);
-      // Use mock data on error
-      setAlerts([
-        {
-          id: 1,
-          severity_level: 2,
-          trigger_source: 'app',
-          message: 'Emergency SOS activated',
-          status: 'active',
-          created_at: '2024-01-15T10:30:00Z',
-          share_url: 'http://192.168.0.100:8000/live/abc123',
-          locations: [
-            { lat: -26.2041, lon: 28.0473, timestamp: '2024-01-15T10:30:00Z' }
-          ]
-        },
-        {
-          id: 2,
-          severity_level: 1,
-          trigger_source: 'checkin',
-          message: 'Ngifikile! (I have arrived)',
-          status: 'completed',
-          created_at: '2024-01-14T15:45:00Z',
-          share_url: 'http://192.168.0.100:8000/live/def456',
-          locations: [
-            { lat: -26.2041, lon: 28.0473, timestamp: '2024-01-14T15:45:00Z' }
-          ]
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getFilteredAlerts = () => {
-    switch (filter) {
-      case 'active':
-        return alerts.filter(alert => alert.status === 'active');
-      case 'completed':
-        return alerts.filter(alert => alert.status === 'completed');
-      default:
-        return alerts;
-    }
-  };
-
-  const getSeverityText = (level) => {
-    switch (level) {
-      case 1:
-        return 'Check-in';
-      case 2:
-        return 'Emergency SOS';
-      default:
-        return 'Unknown';
-    }
-  };
-
-  const getSeverityColor = (level) => {
-    switch (level) {
-      case 1:
-        return '#2196f3';
-      case 2:
-        return '#e53935';
-      default:
-        return '#666';
-    }
-  };
-
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'active':
-        return 'Active';
-      case 'completed':
-        return 'Completed';
-      default:
-        return 'Unknown';
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'active':
-        return '#4caf50';
-      case 'completed':
-        return '#666';
-      default:
-        return '#666';
-    }
-  };
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-ZA', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const handleViewAlert = (alert) => {
-    navigation.navigate('AlertDetail', { alert });
-  };
-
-  const handleShareAlert = (alert) => {
-    const text = encodeURIComponent(
-      `Alert: ${alert.message}\nTrack live: ${alert.share_url}`
-    );
-    
-    try {
-      Linking.openURL(`whatsapp://send?text=${text}`);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to open WhatsApp');
-    }
-  };
-
-  const handleCancelAlert = (alert) => {
-    if (alert.status !== 'active') return;
-    
-    Alert.alert(
-      'Cancel Alert',
-      'Are you sure you want to cancel this alert?',
-      [
-        { text: 'No', style: 'cancel' },
-        { text: 'Cancel Alert', style: 'destructive', onPress: () => cancelAlert(alert.id) },
-      ]
-    );
-  };
+  const filteredAlerts = useMemo(() => {
+    if (filter === 'all') return alerts;
+    if (filter === 'active') return alerts.filter((a) => a.status === 'active');
+    return alerts.filter((a) => a.status !== 'active');
+  }, [alerts, filter]);
 
   const cancelAlert = async (alertId) => {
     try {
-      const response = await fetch(`${BASE_URL}/api/alerts/${alertId}/cancel/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // TODO: Add Authorization header
-        },
-      });
-
-      if (response.ok) {
-        setAlerts(prev => prev.map(alert => 
-          alert.id === alertId ? { ...alert, status: 'completed' } : alert
-        ));
-        Alert.alert('Success', 'Alert cancelled successfully');
-      } else {
-        Alert.alert('Error', 'Failed to cancel alert');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Network error. Please try again.');
+      const response = await apiFetch(`/api/alerts/${alertId}/cancel/`, { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to cancel');
+      setAlerts((prev) => prev.map((item) => (item.id === alertId ? { ...item, status: 'canceled' } : item)));
+    } catch (_) {
+      Alert.alert('Cancel failed', 'Could not cancel this alert right now.');
     }
   };
 
+  const filterChip = (key, label) => (
+    <TouchableOpacity
+      key={key}
+      style={[styles.chip, filter === key && styles.chipActive]}
+      onPress={() => setFilter(key)}
+    >
+      <Text style={[styles.chipText, filter === key && styles.chipTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6cf" />
-          <Text style={styles.loadingText}>Loading alerts...</Text>
+      <ScreenShell>
+        <View style={styles.centered}>
+          <ActivityIndicator color={palette.accent} />
+          <Text style={styles.loadingText}>Loading alerts</Text>
         </View>
-      </SafeAreaView>
+      </ScreenShell>
     );
   }
 
-  const filteredAlerts = getFilteredAlerts();
-
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Demo Mode Banner */}
-      <View style={styles.demoBanner}>
-        <Text style={styles.demoBannerText}>🚀 Demo Mode - Frontend Showcase</Text>
-      </View>
-      
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Alert History</Text>
+    <ScreenShell>
+      <Text style={styles.title}>Alert Timeline</Text>
+      <Text style={styles.subtitle}>Track active emergencies and check-ins in one stream.</Text>
+
+      <View style={styles.chipsRow}>
+        {filterChip('all', `All (${alerts.length})`)}
+        {filterChip('active', `Active (${alerts.filter((a) => a.status === 'active').length})`)}
+        {filterChip('done', `Done (${alerts.filter((a) => a.status !== 'active').length})`)}
       </View>
 
-      {/* Filter Tabs */}
-      <View style={styles.filterTabs}>
-        <TouchableOpacity
-          style={[styles.filterTab, filter === 'all' && styles.filterTabActive]}
-          onPress={() => setFilter('all')}
-        >
-          <Text style={[styles.filterTabText, filter === 'all' && styles.filterTabTextActive]}>
-            All ({alerts.length})
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.filterTab, filter === 'active' && styles.filterTabActive]}
-          onPress={() => setFilter('active')}
-        >
-          <Text style={[styles.filterTabText, filter === 'active' && styles.filterTabTextActive]}>
-            Active ({alerts.filter(a => a.status === 'active').length})
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.filterTab, filter === 'completed' && styles.filterTabActive]}
-          onPress={() => setFilter('completed')}
-        >
-          <Text style={[styles.filterTabText, filter === 'completed' && styles.filterTabTextActive]}>
-            Completed ({alerts.filter(a => a.status === 'completed').length})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.content}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadAlerts(); }} tintColor={palette.accent} />}
+      >
         {filteredAlerts.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>No alerts found</Text>
-            <Text style={styles.emptyStateSubtext}>
-              {filter === 'all' 
-                ? 'Your alert history will appear here'
-                : `No ${filter} alerts found`
-              }
-            </Text>
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No alerts here yet</Text>
+            <Text style={styles.emptySub}>Your future SOS and check-ins will appear in this timeline.</Text>
           </View>
         ) : (
-          filteredAlerts.map((alert) => (
-            <View key={alert.id} style={styles.alertCard}>
-              <View style={styles.alertHeader}>
-                <View style={styles.alertInfo}>
-                  <View style={[styles.severityBadge, { backgroundColor: getSeverityColor(alert.severity_level) }]}>
-                    <Text style={styles.severityText}>
-                      {getSeverityText(alert.severity_level)}
-                    </Text>
+          filteredAlerts.map((item) => {
+            const isActive = item.status === 'active';
+            return (
+              <View style={styles.alertCard} key={item.id}>
+                <View style={styles.alertTopRow}>
+                  <View style={[styles.badge, { backgroundColor: isActive ? '#3a1f23' : '#1d3242' }]}>
+                    <Text style={styles.badgeText}>{isActive ? 'ACTIVE' : 'COMPLETED'}</Text>
                   </View>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(alert.status) }]}>
-                    <Text style={styles.statusText}>
-                      {getStatusText(alert.status)}
-                    </Text>
-                  </View>
+                  <Text style={styles.dateText}>{new Date(item.created_at).toLocaleString()}</Text>
                 </View>
-                <Text style={styles.alertDate}>
-                  {formatDate(alert.created_at)}
-                </Text>
-              </View>
-              
-              <Text style={styles.alertMessage}>{alert.message}</Text>
-              
-              {alert.locations && alert.locations.length > 0 && (
-                <View style={styles.locationInfo}>
-                  <Text style={styles.locationText}>
-                    📍 Last location: {alert.locations[0].lat.toFixed(4)}, {alert.locations[0].lon.toFixed(4)}
+
+                <Text style={styles.alertMsg}>{item.message}</Text>
+                {item.latest_location ? (
+                  <Text style={styles.coordsText}>
+                    Last point: {Number(item.latest_location.lat).toFixed(4)}, {Number(item.latest_location.lon).toFixed(4)}
                   </Text>
-                </View>
-              )}
-              
-              <View style={styles.alertActions}>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => handleViewAlert(alert)}
-                >
-                  <Text style={styles.actionButtonText}>View Details</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => handleShareAlert(alert)}
-                >
-                  <Text style={styles.actionButtonText}>Share</Text>
-                </TouchableOpacity>
-                
-                {alert.status === 'active' && (
+                ) : null}
+
+                <View style={styles.actionsRow}>
                   <TouchableOpacity
-                    style={[styles.actionButton, styles.cancelButton]}
-                    onPress={() => handleCancelAlert(alert)}
+                    style={styles.smallBtn}
+                    onPress={() => navigation.navigate('AlertDetail', { alert: item })}
                   >
-                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                    <Icon name="document-text-outline" size={15} color={palette.text} />
+                    <Text style={styles.smallBtnText}>Details</Text>
                   </TouchableOpacity>
-                )}
+
+                  {isActive ? (
+                    <TouchableOpacity
+                      style={[styles.smallBtn, styles.warnBtn]}
+                      onPress={() => cancelAlert(item.id)}
+                    >
+                      <Icon name="close-circle-outline" size={15} color={palette.text} />
+                      <Text style={styles.smallBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
-            </View>
-          ))
+            );
+          })
         )}
       </ScrollView>
-    </SafeAreaView>
+    </ScreenShell>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#111',
-  },
-  demoBanner: {
-    backgroundColor: '#4caf50',
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: '#45a049',
-  },
-  demoBannerText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
+  centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
-    color: '#ccc',
-    fontSize: 16,
-    marginTop: 20,
+    marginTop: 8,
+    color: palette.text,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  filterTabs: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  filterTab: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 6,
-    marginHorizontal: 4,
-  },
-  filterTabActive: {
-    backgroundColor: '#6cf',
-  },
-  filterTabText: {
-    color: '#ccc',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  filterTabTextActive: {
-    color: '#111',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    color: '#fff',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#ccc',
-    textAlign: 'center',
-  },
-  alertCard: {
-    backgroundColor: '#222',
-    borderRadius: 12,
-    padding: 16,
+  title: {
     marginTop: 16,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    color: palette.text,
+    fontSize: 30,
+    fontFamily: typography.display,
   },
-  alertHeader: {
+  subtitle: {
+    color: palette.textMuted,
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  chipsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    gap: 8,
     marginBottom: 12,
   },
-  alertInfo: {
+  chip: {
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  chipActive: {
+    backgroundColor: '#173047',
+    borderColor: '#36607d',
+  },
+  chipText: {
+    color: palette.textMuted,
+    fontSize: 12,
+  },
+  chipTextActive: {
+    color: palette.text,
+    fontFamily: typography.heading,
+  },
+  emptyCard: {
+    marginTop: 22,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 18,
+  },
+  emptyTitle: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    fontSize: 18,
+  },
+  emptySub: {
+    marginTop: 6,
+    color: palette.textMuted,
+  },
+  alertCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 14,
+    marginBottom: 10,
+  },
+  alertTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  badge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  badgeText: {
+    color: palette.text,
+    fontSize: 11,
+    fontFamily: typography.heading,
+  },
+  dateText: {
+    color: palette.textMuted,
+    fontSize: 11,
+  },
+  alertMsg: {
+    marginTop: 10,
+    color: palette.text,
+    fontSize: 16,
+    fontFamily: typography.heading,
+  },
+  coordsText: {
+    marginTop: 5,
+    color: palette.info,
+    fontSize: 12,
+  },
+  actionsRow: {
+    marginTop: 12,
     flexDirection: 'row',
     gap: 8,
   },
-  severityBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  severityText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  statusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  alertDate: {
-    color: '#ccc',
-    fontSize: 12,
-  },
-  alertMessage: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 12,
-    lineHeight: 22,
-  },
-  locationInfo: {
-    marginBottom: 16,
-  },
-  locationText: {
-    color: '#6cf',
-    fontSize: 14,
-  },
-  alertActions: {
+  smallBtn: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  actionButton: {
-    backgroundColor: '#333',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    flex: 1,
+    gap: 6,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#173047',
   },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
+  warnBtn: {
+    backgroundColor: '#552930',
+    borderColor: '#8f3f4a',
   },
-  cancelButton: {
-    backgroundColor: '#e53935',
-  },
-  cancelButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
+  smallBtnText: {
+    color: palette.text,
+    fontSize: 13,
+    fontFamily: typography.heading,
   },
 });
 
 export default AlertsScreen;
+

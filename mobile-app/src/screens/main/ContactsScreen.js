@@ -1,46 +1,51 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
   ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/Ionicons';
+import ScreenShell from '../../components/ScreenShell';
 import { apiFetch } from '../../api/client';
+import { parseApiList, parseApiListResponse } from '../../utils/apiData';
+import { useNotifications } from '../../context/NotificationsContext';
+import { fetchAndSyncUserLocation } from '../../utils/location';
+import { palette, radius, typography } from '../../theme/tokens';
+
+
 
 const ContactsScreen = ({ navigation }) => {
+  const { refresh: refreshNotifications } = useNotifications();
   const [friends, setFriends] = useState([]);
   const [incoming, setIncoming] = useState([]);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  const BASE_URL = 'http://192.168.0.100:8000'; // TODO: replace with your laptop LAN IP
-
-  useEffect(() => {
-    loadContacts();
-  }, []);
-
-  const loadContacts = async () => {
+  const [loading, setLoading] = useState(true);
+  const load = async () => {
     setLoading(true);
     try {
       const [friendsRes, incomingRes] = await Promise.all([
-        apiFetch(`/api/social/friends/`),
-        apiFetch(`/api/social/friends/requests/incoming/`),
+        apiFetch('/api/social/friends/'),
+        apiFetch('/api/social/friends/requests/incoming/'),
       ]);
-      const friendsData = friendsRes.ok ? await friendsRes.json() : [];
-      const incomingData = incomingRes.ok ? await incomingRes.json() : [];
-      setFriends(friendsData);
-      setIncoming(incomingData);
-    } catch (error) {
-      console.log('Error loading friends:', error);
+      setFriends(await parseApiListResponse(friendsRes));
+      setIncoming(await parseApiListResponse(incomingRes));
     } finally {
       setLoading(false);
     }
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [])
+  );
 
   const searchUsers = async () => {
     if (!query.trim()) {
@@ -50,21 +55,27 @@ const ContactsScreen = ({ navigation }) => {
     try {
       const res = await apiFetch(`/api/social/users/search/?q=${encodeURIComponent(query.trim())}`);
       const data = res.ok ? await res.json() : [];
-      setSearchResults(data);
-    } catch (e) {
-      console.log('search error', e);
+      setSearchResults(parseApiList(data));
+    } catch (_) {
+      setSearchResults([]);
     }
   };
 
   const sendInvite = async (username) => {
     try {
-      const res = await apiFetch(`/api/social/friends/requests/send/`, {
+      const res = await apiFetch('/api/social/friends/requests/send/', {
         method: 'POST',
         body: { to_username: username },
       });
-      if (res.ok) Alert.alert('Sent', 'Friend request sent');
-    } catch (e) {
-      Alert.alert('Error', 'Failed to send request');
+      if (res.status === 409) {
+        Alert.alert('Already sent', `A pending invite already exists for @${username}.`);
+        return;
+      }
+      if (!res.ok) throw new Error('Invite failed');
+      Alert.alert('Sent', `Invite sent to @${username}`);
+      load();
+    } catch (_) {
+      Alert.alert('Unable to invite', 'Please check your connection and try again.');
     }
   };
 
@@ -74,286 +85,431 @@ const ContactsScreen = ({ navigation }) => {
         method: 'POST',
         body: { action },
       });
-      if (res.ok) {
-        loadContacts();
-      }
-    } catch (e) {
-      Alert.alert('Error', 'Failed to respond');
+      if (!res.ok) throw new Error('Failed');
+      await load();
+      await refreshNotifications();
+    } catch (_) {
+      Alert.alert('Error', 'Unable to respond to the request right now.');
     }
   };
 
   const toggleShare = async (friendUsername, isActive) => {
     try {
-      const res = await apiFetch(`/api/social/live-share/toggle/`, {
+      if (isActive) {
+        await fetchAndSyncUserLocation(true);
+      }
+      const res = await apiFetch('/api/social/live-share/toggle/', {
         method: 'POST',
         body: { viewer_username: friendUsername, is_active: isActive },
       });
-      if (res.ok) Alert.alert('Updated', isActive ? 'Sharing enabled' : 'Sharing disabled');
-    } catch (e) {
-      Alert.alert('Error', 'Failed to update sharing');
+      if (!res.ok) throw new Error('Failed');
+      await load();
+      Alert.alert(
+        'Updated',
+        isActive
+          ? 'Your last known location is now visible to this friend.'
+          : 'Location sharing turned off for this friend.',
+      );
+    } catch (_) {
+      Alert.alert('Share update failed', 'Failed to update live-share setting.');
     }
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6cf" />
-          <Text style={styles.loadingText}>Loading contacts...</Text>
+      <ScreenShell>
+        <View style={styles.centered}>
+          <ActivityIndicator color={palette.accent} />
+          <Text style={styles.loadingText}>Loading network</Text>
         </View>
-      </SafeAreaView>
+      </ScreenShell>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Demo Mode Banner */}
-      <View style={styles.demoBanner}>
-        <Text style={styles.demoBannerText}>🚀 Demo Mode - Frontend Showcase</Text>
-      </View>
-      
-      <View style={styles.header}>
-          <Text style={styles.headerTitle}>Friends</Text>
+    <ScreenShell>
+      <View style={styles.headerBlock}>
+        <Text style={styles.title}>Trusted Circle</Text>
+        <Text style={styles.subtitle}>Find, invite, and control who sees your live location.</Text>
       </View>
 
-      <ScrollView style={styles.content}>
-        {/* Incoming Requests */}
-        {incoming.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionHeader}>Incoming Requests</Text>
-            {incoming.map((req) => (
-              <View key={req.id} style={styles.requestRow}>
-                <Text style={styles.requestText}>{req.from_user?.username}</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <TouchableOpacity style={styles.acceptBtn} onPress={() => respondInvite(req.id, 'accept')}>
-                    <Text style={styles.btnText}>Accept</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.rejectBtn} onPress={() => respondInvite(req.id, 'reject')}>
-                    <Text style={styles.btnText}>Reject</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
+      <View style={styles.searchCard}>
+        <TextInput
+          style={styles.input}
+          placeholder="Search username"
+          placeholderTextColor={palette.textMuted}
+          value={query}
+          onChangeText={(text) => {
+            setQuery(text);
+            if (!text.trim()) setSearchResults([]);
+          }}
+          autoCapitalize="none"
+        />
+        <TouchableOpacity style={styles.searchBtn} onPress={searchUsers}>
+          <Icon name="search" color={palette.text} size={16} />
+          <Text style={styles.searchBtnText}>Search</Text>
+        </TouchableOpacity>
+      </View>
 
-        {/* Search */}
-        <View style={styles.section}>
-          <Text style={styles.sectionHeader}>Find Friends</Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              placeholder="Search username"
-              placeholderTextColor="#888"
-              value={query}
-              onChangeText={setQuery}
-            />
-            <TouchableOpacity style={styles.addButton} onPress={searchUsers}>
-              <Text style={styles.addButtonText}>Search</Text>
-            </TouchableOpacity>
-          </View>
-          {searchResults.map(u => (
-            <View key={u.id} style={styles.resultRow}>
-              <Text style={styles.resultText}>@{u.username}</Text>
-              <TouchableOpacity style={styles.inviteBtn} onPress={() => sendInvite(u.username)}>
-                <Text style={styles.btnText}>Invite</Text>
+      {searchResults.length > 0 ? (
+        <View style={styles.resultsCard}>
+          {searchResults.map((user) => (
+            <View key={user.id} style={styles.resultRow}>
+              <Text style={styles.resultText}>@{user.username}</Text>
+              <TouchableOpacity style={styles.inviteBtn} onPress={() => sendInvite(user.username)}>
+                <Text style={styles.inviteText}>Invite</Text>
               </TouchableOpacity>
             </View>
           ))}
         </View>
+      ) : null}
 
-        {/* Friends List */}
-        {friends.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>No friends yet</Text>
-            <Text style={styles.emptyStateSubtext}>Search by username to add friends</Text>
-          </View>
-        ) : (
-          friends.map((fr) => (
-            <View key={fr.id} style={styles.contactCard}>
-              <View style={styles.contactInfo}>
-                <Text style={styles.contactName}>@{fr.friend?.username}</Text>
-              </View>
-              <View style={styles.contactActions}>
-                <TouchableOpacity style={styles.verifyButton} onPress={() => navigation.navigate('FriendDetail', { username: fr.friend?.username })}>
-                  <Text style={styles.verifyButtonText}>Details</Text>
+      {incoming.length > 0 ? (
+        <View style={styles.incomingCard}>
+          <Text style={styles.incomingTitle}>Incoming requests</Text>
+          {incoming.map((req) => (
+            <View key={req.id} style={styles.resultRow}>
+              <Text style={styles.resultText}>@{req.from_user?.username}</Text>
+              <View style={styles.inlineButtons}>
+                <TouchableOpacity style={styles.approveBtn} onPress={() => respondInvite(req.id, 'accept')}>
+                  <Text style={styles.inlineBtnText}>Accept</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.editButton} onPress={() => toggleShare(fr.friend?.username, true)}>
-                  <Text style={styles.editButtonText}>Share</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.deleteButton} onPress={() => toggleShare(fr.friend?.username, false)}>
-                  <Text style={styles.deleteButtonText}>Stop</Text>
+                <TouchableOpacity style={styles.declineBtn} onPress={() => respondInvite(req.id, 'reject')}>
+                  <Text style={styles.inlineBtnText}>Reject</Text>
                 </TouchableOpacity>
               </View>
             </View>
-          ))
+          ))}
+        </View>
+      ) : null}
+
+      <FlatList
+        data={friends}
+        keyExtractor={(item) => String(item.id)}
+        contentContainerStyle={{ paddingBottom: 18 }}
+        renderItem={({ item }) => (
+          <View style={styles.friendCard}>
+            <View style={styles.friendTopRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.friendName}>@{item.friend?.username}</Text>
+                <Text style={styles.friendMeta}>{item.location_label || 'Location hidden'}</Text>
+                <View style={styles.badgeRow}>
+                  <View style={[styles.badge, item.is_sharing_with_friend ? styles.badgeGreen : styles.badgeGrey]}>
+                    <Text style={styles.badgeText}>Sharing: {item.is_sharing_with_friend ? 'Active' : 'Off'}</Text>
+                  </View>
+                  <View style={[styles.badge, item.is_sharing_with_me ? styles.badgeBlue : styles.badgeGrey]}>
+                    <Text style={styles.badgeText}>Receiving: {item.is_sharing_with_me ? 'Active' : 'Off'}</Text>
+                  </View>
+                </View>
+              </View>
+              <View
+                style={[
+                  styles.shareDot,
+                  {
+                    backgroundColor: item.is_sharing_with_friend
+                      ? palette.success
+                      : item.is_sharing_with_me
+                        ? '#2aa8f2'
+                        : '#41596b',
+                  },
+                ]}
+              />
+            </View>
+
+            <View style={styles.cardActions}>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('FriendDetail', { username: item.friend?.username })}>
+                <Text style={styles.actionText}>Details</Text>
+              </TouchableOpacity>
+
+              {item.is_sharing_with_friend ? (
+                <TouchableOpacity style={[styles.actionBtn, styles.actionDanger]} onPress={() => toggleShare(item.friend?.username, false)}>
+                  <Text style={styles.actionText}>Stop Share</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={[styles.actionBtn, styles.actionSuccess]} onPress={() => toggleShare(item.friend?.username, true)}>
+                  <Text style={styles.actionText}>Share Location</Text>
+                </TouchableOpacity>
+              )}
+
+              {item.is_sharing_with_me && item.last_location ? (
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.actionLocate]}
+                  onPress={() => {
+                    navigation.navigate('Map', {
+                      focusedLocation: {
+                        latitude: Number(item.last_location.lat),
+                        longitude: Number(item.last_location.lon),
+                      },
+                    });
+                  }}
+                >
+                  <Icon name="locate" size={14} color="#fff" />
+                  <Text style={[styles.actionText, { marginLeft: 4 }]}>Locate</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
         )}
-      </ScrollView>
-    </SafeAreaView>
+      />
+    </ScreenShell>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  centered: {
     flex: 1,
-    backgroundColor: '#111',
-  },
-  demoBanner: {
-    backgroundColor: '#4caf50',
-    paddingVertical: 8,
-    paddingHorizontal: 20,
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: '#45a049',
-  },
-  demoBannerText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
   },
   loadingText: {
-    color: '#ccc',
-    fontSize: 16,
-    marginTop: 20,
+    color: palette.text,
+    marginTop: 8,
   },
-  header: {
+  title: {
+    color: palette.text,
+    fontSize: 30,
+    fontFamily: typography.display,
+    marginTop: 16,
+  },
+  subtitle: {
+    color: palette.textMuted,
+    marginTop: 4,
+  },
+  headerBlock: {
+    marginBottom: 12,
+  },
+  searchCard: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: palette.surface,
+    borderColor: palette.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    color: palette.text,
+    paddingHorizontal: 12,
+  },
+  searchBtn: {
+    minWidth: 96,
+    borderRadius: radius.md,
+    backgroundColor: palette.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  searchBtnText: {
+    color: palette.text,
+    fontFamily: typography.heading,
+  },
+  resultsCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 10,
+    marginBottom: 10,
+  },
+  incomingCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 10,
+    marginBottom: 10,
+  },
+  incomingTitle: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    marginBottom: 10,
+  },
+  resultRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  addButton: {
-    backgroundColor: '#4caf50',
-    paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  resultText: {
+    color: palette.text,
+  },
+  inviteBtn: {
+    borderRadius: radius.pill,
+    backgroundColor: '#1b3f56',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  inviteText: {
+    color: palette.info,
+    fontFamily: typography.heading,
+    fontSize: 12,
+  },
+  inlineButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  approveBtn: {
+    backgroundColor: '#1f4a37',
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  declineBtn: {
+    backgroundColor: '#5a2f36',
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  inlineBtnText: {
+    color: palette.text,
+    fontSize: 12,
+  },
+  friendCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 14,
+    marginBottom: 10,
+  },
+  friendTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  friendName: {
+    color: palette.text,
+    fontSize: 18,
+    fontFamily: typography.heading,
+  },
+  friendMeta: {
+    color: palette.textMuted,
+    marginTop: 2,
+  },
+  shareDot: {
+    width: 12,
+    height: 12,
     borderRadius: 6,
   },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    color: '#fff',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#ccc',
-    marginBottom: 30,
-    textAlign: 'center',
-    paddingHorizontal: 40,
-  },
-  emptyStateButton: {
-    backgroundColor: '#6cf',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  emptyStateButtonText: {
-    color: '#111',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  contactCard: {
-    backgroundColor: '#222',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  contactInfo: {
-    marginBottom: 16,
-  },
-  contactName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  contactPhone: {
-    fontSize: 16,
-    color: '#6cf',
-    marginBottom: 4,
-  },
-  contactRelationship: {
-    fontSize: 14,
-    color: '#ccc',
-    marginBottom: 8,
-  },
-  verificationStatus: {
-    alignSelf: 'flex-start',
-  },
-  verificationText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  contactActions: {
+  cardActions: {
+    marginTop: 12,
     flexDirection: 'row',
+    gap: 8,
+  },
+  actionBtn: {
+    flex: 1,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#163047',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 38,
+  },
+  actionDanger: {
+    backgroundColor: '#4f2a31',
+    borderColor: '#83444f',
+  },
+  actionSuccess: {
+    backgroundColor: '#1f4a37',
+    borderColor: '#3f7961',
+  },
+  actionLocate: {
+    backgroundColor: '#1b4a6d',
+    borderColor: '#2aa8f2',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 8,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+  },
+  badgeGreen: {
+    backgroundColor: 'rgba(47, 146, 118, 0.16)',
+    borderColor: '#2f9276',
+  },
+  badgeBlue: {
+    backgroundColor: 'rgba(42, 168, 242, 0.16)',
+    borderColor: '#2aa8f2',
+  },
+  badgeGrey: {
+    backgroundColor: '#1b293a',
+    borderColor: palette.border,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontFamily: typography.heading,
+  },
+  actionText: {
+    color: palette.text,
+    fontSize: 12,
+    fontFamily: typography.heading,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
-    gap: 12,
   },
-  verifyButton: {
-    backgroundColor: '#ff9800',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
+  modalContent: {
+    backgroundColor: palette.background,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    height: '70%',
+    borderTopWidth: 1,
+    borderColor: palette.border,
   },
-  verifyButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderColor: palette.border,
   },
-  editButton: {
-    backgroundColor: '#2196f3',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
+  modalTitle: {
+    color: palette.text,
+    fontSize: 20,
+    fontFamily: typography.heading,
   },
-  editButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
+  closeBtn: {
+    padding: 4,
   },
-  deleteButton: {
-    backgroundColor: '#e53935',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
+  notifCard: {
+    backgroundColor: palette.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 12,
+    marginBottom: 10,
   },
-  deleteButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
+  notifUnread: {
+    borderColor: '#2aa8f2',
+    backgroundColor: '#162e48',
+  },
+  notifTitle: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    fontSize: 16,
+  },
+  notifMessage: {
+    color: palette.textMuted,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  notifActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
   },
 });
 

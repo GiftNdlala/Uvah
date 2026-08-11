@@ -7,6 +7,23 @@ const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
  * @format
  */
 
-const config = {};
+const defaultConfig = getDefaultConfig(__dirname);
+const existingBlockList = Array.isArray(defaultConfig.resolver.blockList)
+  ? defaultConfig.resolver.blockList
+  : defaultConfig.resolver.blockList
+    ? [defaultConfig.resolver.blockList]
+    : [];
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), config);
+const config = {
+  resolver: {
+    blockList: [
+      ...existingBlockList,
+      /[\\\/]android[\\\/]build[\\\/].*/,
+      /[\\\/]android[\\\/]app[\\\/]build[\\\/].*/,
+      /[\\\/]\.gradle[\\\/].*/,
+      /[\\\/]tmp[\\\/].*/,
+    ],
+  },
+};
+
+module.exports = mergeConfig(defaultConfig, config);

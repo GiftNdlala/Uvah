@@ -5,8 +5,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.authentication import SimpleJWTAuthentication
-from .models import FriendRequest, Friendship, LiveShare, UserLocation
-from .serializers import FriendRequestSerializer, FriendshipSerializer, PublicUserSerializer, LiveShareSerializer, UserLocationSerializer
+from .location_utils import upsert_user_location
+from .models import FriendRequest, Friendship, LiveShare, UserLocation, Notification
+from .serializers import (
+    FriendRequestSerializer,
+    FriendshipDetailSerializer,
+    PublicUserSerializer,
+    LiveShareSerializer,
+    UserLocationSerializer,
+    NotificationSerializer,
+)
 
 
 User = get_user_model()
@@ -21,7 +29,12 @@ class UserSearchView(generics.ListAPIView):
         q = self.request.query_params.get('q', '').strip()
         if not q:
             return User.objects.none()
-        return User.objects.filter(username__icontains=q)[:20]
+        return User.objects.exclude(id=self.request.user.id).filter(username__icontains=q).order_by('username')
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
 
 
 class SendFriendRequestView(APIView):
@@ -43,6 +56,18 @@ class SendFriendRequestView(APIView):
             return Response({'detail': 'Request already sent'}, status=409)
         fr.status = 'pending'
         fr.save()
+
+        if created or not Notification.objects.filter(
+            user=to_user, notification_type='friend_request', related_entity_id=fr.id
+        ).exists():
+            Notification.objects.create(
+                user=to_user,
+                notification_type='friend_request',
+                title='New Friend Request',
+                message=f'@{request.user.username} sent you a friend request.',
+                related_entity_id=fr.id,
+            )
+
         return Response(FriendRequestSerializer(fr).data, status=201)
 
 
@@ -61,7 +86,7 @@ class RespondFriendRequestView(APIView):
 
     @transaction.atomic
     def post(self, request, request_id):
-        action = request.data.get('action')  # 'accept' or 'reject'
+        action = request.data.get('action')
         try:
             fr = FriendRequest.objects.select_for_update().get(id=request_id, to_user=request.user)
         except FriendRequest.DoesNotExist:
@@ -71,25 +96,44 @@ class RespondFriendRequestView(APIView):
         if action == 'accept':
             fr.status = 'accepted'
             fr.save()
-            # Create mutual friendships
             Friendship.objects.get_or_create(user=fr.from_user, friend=fr.to_user)
             Friendship.objects.get_or_create(user=fr.to_user, friend=fr.from_user)
+            LiveShare.objects.update_or_create(
+                owner=fr.from_user, viewer=fr.to_user, defaults={'is_active': True}
+            )
+            LiveShare.objects.update_or_create(
+                owner=fr.to_user, viewer=fr.from_user, defaults={'is_active': True}
+            )
+            Notification.objects.create(
+                user=fr.from_user,
+                notification_type='friend_accept',
+                title='Friend Request Accepted',
+                message=f'@{request.user.username} accepted your friend request.',
+                related_entity_id=fr.id,
+            )
             return Response({'ok': True})
-        elif action == 'reject':
+        if action == 'reject':
             fr.status = 'rejected'
             fr.save()
             return Response({'ok': True})
-        else:
-            return Response({'detail': 'Invalid action'}, status=400)
+        return Response({'detail': 'Invalid action'}, status=400)
 
 
 class FriendsListView(generics.ListAPIView):
-    serializer_class = FriendshipSerializer
+    serializer_class = FriendshipDetailSerializer
     permission_classes = [permissions.IsAuthenticated]
     authentication_classes = [SimpleJWTAuthentication]
 
     def get_queryset(self):
         return Friendship.objects.filter(user=self.request.user).select_related('friend').order_by('friend__username')
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        friend_ids = Friendship.objects.filter(user=self.request.user).values_list('friend_id', flat=True)
+        locations = UserLocation.objects.filter(user_id__in=friend_ids).select_related('user', 'user__account_profile')
+        ctx['friend_locations'] = {loc.user_id: loc for loc in locations}
+        return ctx
 
 
 class ToggleLiveShareView(APIView):
@@ -112,7 +156,15 @@ class ToggleLiveShareView(APIView):
         ls, _ = LiveShare.objects.get_or_create(owner=request.user, viewer=viewer)
         ls.is_active = is_active
         ls.save()
-        return Response(LiveShareSerializer(ls).data)
+
+        payload = LiveShareSerializer(ls).data
+        if is_active:
+            try:
+                loc = UserLocation.objects.get(user=request.user)
+                payload['owner_last_location'] = UserLocationSerializer(loc, context={'request': request}).data
+            except UserLocation.DoesNotExist:
+                payload['owner_last_location'] = None
+        return Response(payload)
 
 
 class UpdateMyLocationView(APIView):
@@ -125,12 +177,15 @@ class UpdateMyLocationView(APIView):
         accuracy = request.data.get('accuracy')
         if lat is None or lon is None:
             return Response({'detail': 'lat and lon are required'}, status=400)
-        loc, _ = UserLocation.objects.get_or_create(user=request.user)
-        loc.lat = float(lat)
-        loc.lon = float(lon)
+        defaults = {'lat': float(lat), 'lon': float(lon)}
         if accuracy is not None:
-            loc.accuracy = float(accuracy)
-        loc.save()
+            defaults['accuracy'] = float(accuracy)
+        upsert_user_location(
+            request.user,
+            defaults['lat'],
+            defaults['lon'],
+            defaults.get('accuracy'),
+        )
         return Response({'ok': True})
 
 
@@ -141,8 +196,38 @@ class FriendsLocationsView(generics.ListAPIView):
 
     def get_queryset(self):
         friend_ids = Friendship.objects.filter(user=self.request.user).values_list('friend_id', flat=True)
-        # Only include friends who have granted live share to requester
         allowed_ids = LiveShare.objects.filter(viewer=self.request.user, is_active=True).values_list('owner_id', flat=True)
         allowed_friend_ids = set(friend_ids).intersection(set(allowed_ids))
-        return UserLocation.objects.filter(user_id__in=allowed_friend_ids)
+        return (
+            UserLocation.objects.filter(user_id__in=allowed_friend_ids)
+            .select_related('user', 'user__account_profile')
+            .order_by('user__username')
+        )
 
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
+
+
+class NotificationListView(generics.ListAPIView):
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SimpleJWTAuthentication]
+
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user).order_by('-created_at')
+
+
+class MarkNotificationReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SimpleJWTAuthentication]
+
+    def post(self, request, notification_id):
+        try:
+            notification = Notification.objects.get(id=notification_id, user=request.user)
+            notification.is_read = True
+            notification.save()
+            return Response({'ok': True})
+        except Notification.DoesNotExist:
+            return Response({'detail': 'Not found'}, status=404)

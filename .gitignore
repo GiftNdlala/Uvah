@@ -49,6 +49,8 @@ ios/
 *.mobileprovision
 *.orig.*
 web-build/
+.gradle-user/
+
 
 # Build outputs
 build/
@@ -141,3 +143,7 @@ jspm_packages/
 
 # TernJS port file
 .tern-port
+node_modules
+node_modules
+node_modules
+node_modules

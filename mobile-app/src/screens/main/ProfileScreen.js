@@ -1,380 +1,351 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  Switch,
   ActivityIndicator,
+  Alert,
+  Image,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import { launchImageLibrary } from 'react-native-image-picker';
+import Icon from 'react-native-vector-icons/Ionicons';
+import ScreenShell from '../../components/ScreenShell';
+import { apiFetch, apiUpload, clearTokens, setDemoMode } from '../../api/client';
+import { useFriendLocations } from '../../context/FriendLocationsContext';
+import { resolveMediaUrl } from '../../utils/mediaUrl';
+import { reset as resetNavigation } from '../../utils/navigationRef';
+import { palette, radius, typography } from '../../theme/tokens';
 
 const ProfileScreen = ({ navigation }) => {
+  const { refreshProfile } = useFriendLocations();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [profile, setProfile] = useState({
-    firstName: 'John',
-    lastName: 'Doe',
-    phoneNumber: '+27 82 123 4567',
-    email: 'john.doe@example.com',
-    emergencyContact: 'Jane Doe',
-    emergencyContactPhone: '+27 82 987 6543',
+    firstName: '',
+    lastName: '',
+    phoneNumber: '',
+    email: '',
+    emergencyContact: '',
+    emergencyContactPhone: '',
+    avatarUrl: null,
   });
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [settings, setSettings] = useState({
     locationSharing: true,
     pushNotifications: true,
     emergencyAlerts: true,
     dataSaving: false,
   });
-  const [loading, setLoading] = useState(false);
 
-  const BASE_URL = 'http://192.168.0.100:8000'; // TODO: replace with your laptop LAN IP
-
-  useEffect(() => {
-    // TODO: Load user profile from API
-    loadUserProfile();
-  }, []);
-
-  const loadUserProfile = async () => {
+  const loadProfile = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
-      const response = await fetch(`${BASE_URL}/api/users/profile/`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          // TODO: Add Authorization header with JWT token
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setProfile(data);
-      } else {
-        console.log('Failed to load profile');
+      const res = await apiFetch('/api/accounts/profile/me/');
+      if (!res.ok) {
+        throw new Error('Could not load profile.');
       }
-    } catch (error) {
-      console.log('Error loading profile:', error);
+      const data = await res.json();
+      setProfile({
+        firstName: data.first_name || '',
+        lastName: data.last_name || '',
+        phoneNumber: data.phone_number || data.username || '',
+        email: data.email || '',
+        emergencyContact: data.emergency_contact || '',
+        emergencyContactPhone: data.emergency_contact_phone || '',
+        avatarUrl: data.avatar_url || null,
+      });
+    } catch (e) {
+      setLoadError(e.message || 'Unable to load profile.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleSettingToggle = (setting) => {
-    setSettings(prev => ({
-      ...prev,
-      [setting]: !prev[setting]
-    }));
-  };
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [loadProfile])
+  );
 
-  const handleEditProfile = () => {
-    navigation.navigate('EditProfile', { profile });
-  };
+  const toggle = (key) => setSettings((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const handleEditEmergencyContact = () => {
-    navigation.navigate('EditEmergencyContact', { 
-      emergencyContact: profile.emergencyContact,
-      emergencyContactPhone: profile.emergencyContactPhone 
-    });
-  };
+  const pickAvatar = () => {
+    launchImageLibrary(
+      { mediaType: 'photo', quality: 0.8, maxWidth: 800, maxHeight: 800 },
+      async (response) => {
+        if (response.didCancel || response.errorCode) return;
+        const asset = response.assets?.[0];
+        if (!asset?.uri) return;
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: () => {
-          // TODO: Clear stored tokens and navigate to login
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Login' }],
+        setUploadingAvatar(true);
+        try {
+          const fileUri = Platform.OS === 'android' ? asset.uri : asset.uri.replace('file://', '');
+          const formData = new FormData();
+          formData.append('avatar', {
+            uri: fileUri,
+            type: asset.type || 'image/jpeg',
+            name: asset.fileName || 'avatar.jpg',
           });
-        }},
-      ]
+          const res = await apiUpload('/api/accounts/profile/me/avatar/', formData);
+          if (!res.ok) throw new Error('Upload failed');
+          const data = await res.json();
+          setProfile((prev) => ({ ...prev, avatarUrl: data.avatar_url || null }));
+          await refreshProfile();
+          Alert.alert('Updated', 'Profile photo saved.');
+        } catch (_) {
+          Alert.alert('Upload failed', 'Could not update your profile photo.');
+        } finally {
+          setUploadingAvatar(false);
+        }
+      },
     );
   };
 
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'This action cannot be undone. All your data will be permanently deleted.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => {
-          // TODO: Implement account deletion
-          Alert.alert('Not Implemented', 'Account deletion will be available in a future update.');
-        }},
-      ]
-    );
+  const logout = () => {
+    Alert.alert('Log out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: async () => {
+          await clearTokens();
+          await setDemoMode(false);
+          resetNavigation({ index: 0, routes: [{ name: 'Login' }] });
+        },
+      },
+    ]);
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6cf" />
-          <Text style={styles.loadingText}>Loading profile...</Text>
+      <ScreenShell>
+        <View style={styles.centered}>
+          <ActivityIndicator color={palette.accent} />
+          <Text style={styles.loadingText}>Loading profile</Text>
         </View>
-      </SafeAreaView>
+      </ScreenShell>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Demo Mode Banner */}
-      <View style={styles.demoBanner}>
-        <Text style={styles.demoBannerText}>🚀 Demo Mode - Frontend Showcase</Text>
-      </View>
-      
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backButtonText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
-          <Text style={styles.editButtonText}>Edit</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.content}>
-        {/* Profile Information */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Personal Information</Text>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Name</Text>
-            <Text style={styles.infoValue}>
-              {profile.firstName} {profile.lastName}
-            </Text>
+    <ScreenShell>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.headerCard}>
+          <TouchableOpacity style={styles.avatarCircle} onPress={pickAvatar} disabled={uploadingAvatar}>
+            {profile.avatarUrl ? (
+              <Image source={{ uri: resolveMediaUrl(profile.avatarUrl) }} style={styles.avatarImage} />
+            ) : (
+              <Icon name="person" size={32} color={palette.text} />
+            )}
+            {uploadingAvatar ? (
+              <View style={styles.avatarOverlay}>
+                <ActivityIndicator color="#fff" size="small" />
+              </View>
+            ) : null}
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.nameText}>{profile.firstName} {profile.lastName}</Text>
+            <Text style={styles.subText}>{profile.phoneNumber}</Text>
           </View>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Phone</Text>
-            <Text style={styles.infoValue}>{profile.phoneNumber}</Text>
-          </View>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Email</Text>
-            <Text style={styles.infoValue}>{profile.email || 'Not provided'}</Text>
-          </View>
-        </View>
-
-        {/* Emergency Contact */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Emergency Contact</Text>
-            <TouchableOpacity onPress={handleEditEmergencyContact}>
-              <Text style={styles.editLink}>Edit</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.editPill} onPress={pickAvatar}>
+              <Text style={styles.editPillText}>Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.editPill} onPress={() => navigation.navigate('EditProfile', { profile })}>
+              <Text style={styles.editPillText}>Edit</Text>
             </TouchableOpacity>
           </View>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Contact Name</Text>
-            <Text style={styles.infoValue}>{profile.emergencyContact}</Text>
-          </View>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Contact Phone</Text>
-            <Text style={styles.infoValue}>{profile.emergencyContactPhone}</Text>
-          </View>
         </View>
 
-        {/* Settings */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Settings</Text>
-          
+        {loadError ? (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>{loadError}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Personal Details</Text>
+          <Text style={styles.infoText}>Email: {profile.email || 'Not set'}</Text>
+          <Text style={styles.infoText}>Emergency Contact: {profile.emergencyContact}</Text>
+          <Text style={styles.infoText}>Emergency Phone: {profile.emergencyContactPhone}</Text>
+          <TouchableOpacity style={styles.inlineBtn} onPress={() => navigation.navigate('EditEmergencyContact', { profile })}>
+            <Text style={styles.inlineBtnText}>Update Emergency Contact</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Safety Preferences</Text>
           <View style={styles.settingRow}>
             <Text style={styles.settingLabel}>Location Sharing</Text>
-            <Switch
-              value={settings.locationSharing}
-              onValueChange={() => handleSettingToggle('locationSharing')}
-              trackColor={{ false: '#555', true: '#6cf' }}
-              thumbColor={settings.locationSharing ? '#fff' : '#ccc'}
-            />
+            <Switch value={settings.locationSharing} onValueChange={() => toggle('locationSharing')} trackColor={{ false: '#455a68', true: '#2f9276' }} thumbColor="#f8fcff" />
           </View>
-          
           <View style={styles.settingRow}>
             <Text style={styles.settingLabel}>Push Notifications</Text>
-            <Switch
-              value={settings.pushNotifications}
-              onValueChange={() => handleSettingToggle('pushNotifications')}
-              trackColor={{ false: '#555', true: '#6cf' }}
-              thumbColor={settings.pushNotifications ? '#fff' : '#ccc'}
-            />
+            <Switch value={settings.pushNotifications} onValueChange={() => toggle('pushNotifications')} trackColor={{ false: '#455a68', true: '#2f9276' }} thumbColor="#f8fcff" />
           </View>
-          
           <View style={styles.settingRow}>
             <Text style={styles.settingLabel}>Emergency Alerts</Text>
-            <Switch
-              value={settings.emergencyAlerts}
-              onValueChange={() => handleSettingToggle('emergencyAlerts')}
-              trackColor={{ false: '#555', true: '#6cf' }}
-              thumbColor={settings.emergencyAlerts ? '#fff' : '#ccc'}
-            />
+            <Switch value={settings.emergencyAlerts} onValueChange={() => toggle('emergencyAlerts')} trackColor={{ false: '#455a68', true: '#2f9276' }} thumbColor="#f8fcff" />
           </View>
-          
           <View style={styles.settingRow}>
             <Text style={styles.settingLabel}>Data Saving Mode</Text>
-            <Switch
-              value={settings.dataSaving}
-              onValueChange={() => handleSettingToggle('dataSaving')}
-              trackColor={{ false: '#555', true: '#6cf' }}
-              thumbColor={settings.dataSaving ? '#fff' : '#ccc'}
-            />
+            <Switch value={settings.dataSaving} onValueChange={() => toggle('dataSaving')} trackColor={{ false: '#455a68', true: '#2f9276' }} thumbColor="#f8fcff" />
           </View>
         </View>
 
-        {/* Account Actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          
-          <TouchableOpacity style={styles.actionButton} onPress={handleLogout}>
-            <Text style={styles.actionButtonText}>Logout</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dangerButton} onPress={handleDeleteAccount}>
-            <Text style={styles.dangerButtonText}>Delete Account</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
+          <Text style={styles.logoutText}>Log Out</Text>
+        </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
+    </ScreenShell>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#111',
-  },
-  demoBanner: {
-    backgroundColor: '#4caf50',
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: '#45a049',
-  },
-  demoBannerText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
+  centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
-    color: '#ccc',
-    fontSize: 16,
-    marginTop: 20,
+    color: palette.text,
+    marginTop: 8,
   },
-  header: {
+  headerCard: {
+    marginTop: 14,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    gap: 12,
   },
-  backButton: {
-    padding: 5,
+  avatarCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#19344b',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  backButtonText: {
-    color: '#6cf',
-    fontSize: 16,
+  avatarImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
-  headerTitle: {
+  avatarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  nameText: {
+    color: palette.text,
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontFamily: typography.heading,
   },
-  editButton: {
-    padding: 5,
+  subText: {
+    color: palette.textMuted,
+    marginTop: 2,
   },
-  editButtonText: {
-    color: '#6cf',
-    fontSize: 16,
+  errorCard: {
+    marginTop: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#8a404b',
+    backgroundColor: 'rgba(138, 64, 75, 0.24)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
+  errorText: {
+    color: '#ffd8df',
+    fontSize: 12,
   },
-  section: {
-    marginTop: 30,
+  editPill: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#163047',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
+  editPillText: {
+    color: palette.info,
+    fontSize: 12,
+    fontFamily: typography.heading,
+  },
+  sectionCard: {
+    marginTop: 12,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 14,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#6cf',
-    marginBottom: 15,
-  },
-  editLink: {
-    color: '#6cf',
-    fontSize: 14,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  infoLabel: {
+    color: palette.text,
+    fontFamily: typography.heading,
     fontSize: 16,
-    color: '#ccc',
-    fontWeight: '500',
+    marginBottom: 10,
   },
-  infoValue: {
-    fontSize: 16,
-    color: '#fff',
-    textAlign: 'right',
-    flex: 1,
-    marginLeft: 20,
+  infoText: {
+    color: palette.textMuted,
+    marginBottom: 6,
+  },
+  inlineBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#173047',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  inlineBtnText: {
+    color: palette.info,
+    fontSize: 12,
+    fontFamily: typography.heading,
   },
   settingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 15,
+    paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: '#22374a',
   },
   settingLabel: {
-    fontSize: 16,
-    color: '#fff',
+    color: palette.text,
   },
-  actionButton: {
-    backgroundColor: '#333',
-    paddingVertical: 15,
-    borderRadius: 8,
+  logoutBtn: {
+    marginTop: 16,
+    marginBottom: 20,
+    borderRadius: radius.md,
+    backgroundColor: '#592d34',
+    borderWidth: 1,
+    borderColor: '#7f3d49',
+    minHeight: 48,
     alignItems: 'center',
-    marginBottom: 15,
+    justifyContent: 'center',
   },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  dangerButton: {
-    backgroundColor: '#e53935',
-    paddingVertical: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  dangerButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
+  logoutText: {
+    color: palette.text,
+    fontSize: 15,
+    fontFamily: typography.heading,
   },
 });
 

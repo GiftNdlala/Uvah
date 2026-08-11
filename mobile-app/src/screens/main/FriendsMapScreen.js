@@ -1,82 +1,95 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, RefreshControl } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { apiFetch } from '../../api/client';
+import React from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/Ionicons';
+import ScreenShell from '../../components/ScreenShell';
+import TrustedCircleMap from '../../components/TrustedCircleMap';
+import { useFriendLocations } from '../../context/FriendLocationsContext';
+import { palette, radius, typography } from '../../theme/tokens';
 
-const initialRegion = {
-  latitude: -26.2041,
-  longitude: 28.0473,
-  latitudeDelta: 0.08,
-  longitudeDelta: 0.08,
-};
+const FriendsMapScreen = ({ route }) => {
+  const { friendLocations, userLocation, refreshAll } = useFriendLocations();
+  const focusedLocation = route?.params?.focusedLocation;
 
-const FriendsMapScreen = () => {
-  const [locations, setLocations] = useState([]);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = async () => {
-    try {
-      const res = await apiFetch('/api/social/location/friends/');
-      const data = res.ok ? await res.json() : [];
-      setLocations(data);
-    } catch (e) {}
-  };
-
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 7000);
-    return () => clearInterval(id);
-  }, []);
-
-  const region = useMemo(() => {
-    if (!locations || locations.length === 0) return initialRegion;
-    const first = locations[0];
-    return {
-      latitude: Number(first.lat) || initialRegion.latitude,
-      longitude: Number(first.lon) || initialRegion.longitude,
-      latitudeDelta: 0.08,
-      longitudeDelta: 0.08,
-    };
-  }, [locations]);
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshAll(true);
+      const id = setInterval(() => refreshAll(false), 15000);
+      return () => clearInterval(id);
+    }, [refreshAll]),
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Friends Map</Text>
+    <ScreenShell>
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.title}>Trusted Circle Map</Text>
+          <Text style={styles.subtitle}>
+            You + {friendLocations.length} friend{friendLocations.length === 1 ? '' : 's'} on map
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.refreshBtn} onPress={() => refreshAll(true)}>
+          <Icon name="refresh" size={16} color={palette.text} />
+          <Text style={styles.refreshText}>Refresh</Text>
+        </TouchableOpacity>
       </View>
-      <MapView
-        provider={PROVIDER_GOOGLE}
-        style={styles.map}
-        initialRegion={region}
-        region={region}
-      >
-        {locations.map((loc) => (
-          <Marker
-            key={loc.user?.id}
-            coordinate={{ latitude: Number(loc.lat), longitude: Number(loc.lon) }}
-            title={`@${loc.user?.username}`}
-            description={`Updated ${new Date(loc.updated_at).toLocaleTimeString()}`}
-          />
-        ))}
-      </MapView>
-      <View style={styles.footer}>
-        <Text style={styles.footerText} onPress={() => { setRefreshing(true); load(); }}>
-          Pull to refresh in map is not supported — tap to refresh now
-        </Text>
-      </View>
-    </SafeAreaView>
+
+      <TrustedCircleMap
+        userLocation={userLocation}
+        friendLocations={friendLocations}
+        focusedLocation={focusedLocation}
+        showFriends
+        showUserMarker
+        style={styles.mapWrap}
+        mapStyle={styles.map}
+      />
+    </ScreenShell>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#111' },
-  header: { paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#333' },
-  title: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  map: { flex: 1 },
-  footer: { padding: 10, backgroundColor: '#111', borderTopWidth: 1, borderTopColor: '#333' },
-  footerText: { color: '#6cf', textAlign: 'center' },
+  headerRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  title: {
+    color: palette.text,
+    fontSize: 28,
+    fontFamily: typography.display,
+  },
+  subtitle: {
+    color: palette.textMuted,
+    marginTop: 2,
+  },
+  refreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+  },
+  refreshText: {
+    color: palette.text,
+    fontSize: 12,
+    fontFamily: typography.heading,
+  },
+  mapWrap: {
+    flex: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    marginBottom: 12,
+  },
+  map: {
+    flex: 1,
+  },
 });
 
 export default FriendsMapScreen;
-

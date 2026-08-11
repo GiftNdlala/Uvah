@@ -1,10 +1,11 @@
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.views.generic import TemplateView
-from rest_framework import status
+from rest_framework import status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.authentication import SimpleJWTAuthentication
 from .models import Alert, AlertLocation
 from .serializers import (
     AlertCreateSerializer,
@@ -13,37 +14,71 @@ from .serializers import (
 )
 
 class CreateAlertView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SimpleJWTAuthentication]
+
     def post(self, request):
         serializer = AlertCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        alert = serializer.save()
+        alert = serializer.save(user=request.user)
+
+        try:
+            from social.notify import notify_friends_checkin, notify_friends_sos
+
+            if alert.severity_level >= 2:
+                notify_friends_sos(request.user, alert)
+            else:
+                notify_friends_checkin(request.user, alert)
+        except Exception:
+            pass
+
         return Response(AlertResponseSerializer(alert, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 class AlertLocationCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
     def post(self, request, alert_id: int):
-        alert = get_object_or_404(Alert, pk=alert_id)
+        alert = get_object_or_404(Alert, pk=alert_id, user=request.user)
+        if alert.status != Alert.STATUS_ACTIVE:
+            return Response({'detail': 'Cannot post location to a non-active alert'}, status=status.HTTP_400_BAD_REQUEST)
         serializer = LocationCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         AlertLocation.objects.create(alert=alert, **serializer.validated_data)
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
 class AlertDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request, alert_id: int):
-        alert = get_object_or_404(Alert, pk=alert_id)
-        data = AlertResponseSerializer(alert, context={'request': request}).data
-        latest = alert.locations.order_by('-captured_at').first()
-        if latest:
-            data['latest_location'] = {
-                'lat': latest.lat,
-                'lon': latest.lon,
-                'accuracy': latest.accuracy,
-                'captured_at': latest.captured_at,
-            }
-        else:
-            data['latest_location'] = None
-        return Response(data)
+        alert = get_object_or_404(Alert, pk=alert_id, user=request.user)
+        return Response(AlertResponseSerializer(alert, context={'request': request}).data)
+
+
+class MyAlertsListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        status_filter = request.query_params.get('status', '').strip().lower()
+        queryset = Alert.objects.filter(user=request.user).order_by('-created_at')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        payload = AlertResponseSerializer(queryset, many=True, context={'request': request}).data
+        return Response(payload)
+
+
+class CancelAlertView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, alert_id: int):
+        alert = get_object_or_404(Alert, pk=alert_id, user=request.user)
+        if alert.status == Alert.STATUS_ACTIVE:
+            alert.status = Alert.STATUS_CANCELED
+            alert.save(update_fields=['status'])
+        return Response(AlertResponseSerializer(alert, context={'request': request}).data)
 
 class LiveViewLatestLocation(APIView):
+    permission_classes = [permissions.AllowAny]
+
     def get(self, request, token: str):
         try:
             alert = Alert.objects.get(live_view_token=token)

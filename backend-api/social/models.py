@@ -48,3 +48,17 @@ class UserLocation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class Notification(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    notification_type = models.CharField(max_length=32) # 'friend_request', 'friend_accept', 'system', etc.
+    title = models.CharField(max_length=128)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    related_entity_id = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.get_full_name()} - {self.title}"

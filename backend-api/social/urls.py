@@ -8,6 +8,8 @@ from .views import (
     ToggleLiveShareView,
     UpdateMyLocationView,
     FriendsLocationsView,
+    NotificationListView,
+    MarkNotificationReadView,
 )
 
 
@@ -20,5 +22,7 @@ urlpatterns = [
     path('live-share/toggle/', ToggleLiveShareView.as_view(), name='live-share-toggle'),
     path('location/update/', UpdateMyLocationView.as_view(), name='location-update'),
     path('location/friends/', FriendsLocationsView.as_view(), name='friends-locations'),
+    path('notifications/', NotificationListView.as_view(), name='notifications-list'),
+    path('notifications/<int:notification_id>/read/', MarkNotificationReadView.as_view(), name='notification-mark-read'),
 ]
 

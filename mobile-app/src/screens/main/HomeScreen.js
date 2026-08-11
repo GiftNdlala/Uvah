@@ -1,26 +1,115 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
   ActivityIndicator,
+  Alert,
   Linking,
-  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { apiFetch } from '../../api/client';
+import ScreenShell from '../../components/ScreenShell';
+import TrustedCircleMap from '../../components/TrustedCircleMap';
+import { useFriendLocations } from '../../context/FriendLocationsContext';
+import { fetchNearbyPlaces } from '../../utils/places';
+import { palette, radius, typography } from '../../theme/tokens';
 
-const { width } = Dimensions.get('window');
+const SECTION_TABS = ['Trusted Circle', 'Hot Spots', 'Events'];
+
+
+
 
 const HomeScreen = ({ navigation }) => {
-  const [alert, setAlert] = useState(null);
+  const [alertData, setAlertData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [locationStatus, setLocationStatus] = useState('Checking...');
+  const [statusText, setStatusText] = useState('Safe and online');
+  const [activeTab, setActiveTab] = useState('Trusted Circle');
+  const [profileName, setProfileName] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState([]);
+  const [defaultPlaces, setDefaultPlaces] = useState([]);
+  const [placesLoading, setPlacesLoading] = useState(false);
+  const [placesError, setPlacesError] = useState(null);
   const timerRef = useRef(null);
 
-  const BASE_URL = 'http://192.168.0.100:8000'; // TODO: replace with your laptop LAN IP
+  const { friendLocations, userLocation, refreshAll } = useFriendLocations();
+
+  const mapUserLocation = useMemo(() => {
+    if (!userLocation) return null;
+    return { ...userLocation, avatarUrl: avatarUrl || userLocation.avatarUrl };
+  }, [userLocation, avatarUrl]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const loadProfile = async () => {
+        try {
+          await refreshAll(true);
+          const profRes = await apiFetch('/api/accounts/profile/me/');
+          if (profRes.ok) {
+            const prof = await profRes.json();
+            setProfileName(prof.first_name || prof.username || 'Friend');
+            setAvatarUrl(prof.avatar_url || null);
+          }
+        } catch (_) {}
+      };
+      loadProfile();
+    }, [refreshAll]),
+  );
+
+  useEffect(() => {
+    if (!userLocation) return undefined;
+    const controller = new AbortController();
+    fetchNearbyPlaces(userLocation.latitude, userLocation.longitude, 'hotspots', controller.signal)
+      .then((places) => {
+        setDefaultPlaces(places);
+      })
+      .catch(() => null);
+    return () => controller.abort();
+  }, [userLocation]);
+
+  useEffect(() => {
+    if (!userLocation || activeTab === 'Trusted Circle') {
+      setNearbyPlaces([]);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const category = activeTab === 'Events' ? 'events' : activeTab === 'Hot Spots' ? 'hotspots' : 'nightlife';
+
+    setPlacesLoading(true);
+    setPlacesError(null);
+    setNearbyPlaces([]);
+
+    fetchNearbyPlaces(userLocation.latitude, userLocation.longitude, category, controller.signal)
+      .then((places) => {
+        setNearbyPlaces(places);
+        if (!places.length) {
+          setPlacesError(
+            activeTab === 'Events'
+              ? 'No events venues found nearby. Try again later.'
+              : 'No places found nearby right now.',
+          );
+        }
+      })
+      .catch(() => {
+        setPlacesError('Could not load nearby places. Check your connection and try again.');
+        setNearbyPlaces([]);
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
+        setPlacesLoading(false);
+      });
+
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [userLocation, activeTab]);
 
   useEffect(() => {
     return () => {
@@ -28,402 +117,506 @@ const HomeScreen = ({ navigation }) => {
     };
   }, []);
 
-  const startSOS = async () => {
-    Alert.alert(
-      'Emergency SOS',
-      'Are you sure you want to start an emergency SOS? This will alert your emergency contacts.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Start SOS', style: 'destructive', onPress: confirmSOS },
-      ]
-    );
+  const postLocation = async (alertId) => {
+    const lat = userLocation ? userLocation.latitude : -26.2041 + Math.random() * 0.001;
+    const lon = userLocation ? userLocation.longitude : 28.0473 + Math.random() * 0.001;
+
+    await apiFetch(`/api/alerts/${alertId}/locations`, {
+      method: 'POST',
+      body: { lat, lon, accuracy: 20 },
+    });
+
+    try {
+      await apiFetch('/api/social/location/update/', {
+        method: 'POST',
+        body: { lat, lon, accuracy: 20 },
+      });
+    } catch (_) {}
   };
 
-  const confirmSOS = async () => {
+  const startLocationLoop = (alertId) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      postLocation(alertId).catch(() => null);
+    }, 5000);
+  };
+
+  const activateSOS = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/alerts`, {
+      const response = await apiFetch('/api/alerts', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // TODO: Add Authorization header with JWT token
-        },
-        body: JSON.stringify({
+        body: {
           severity_level: 2,
           trigger_count: 2,
           trigger_source: 'app',
           message: 'Emergency SOS activated',
-        }),
+        },
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setAlert(data);
-        setLocationStatus('SOS Active - Sharing Location');
-        
-        // Start location sharing
-        startLocationSharing(data.id);
-        
-        Alert.alert(
-          'SOS Activated',
-          'Emergency SOS is now active. Your location is being shared with emergency contacts.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        const error = await response.json();
-        Alert.alert('Error', error.message || 'Failed to start SOS');
+      if (!response.ok) {
+        throw new Error('Could not activate SOS.');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Network error. Please try again.');
+
+      const data = await response.json();
+      setAlertData(data);
+      setStatusText('SOS active and sharing live location');
+      startLocationLoop(data.id);
+    } catch (e) {
+      Alert.alert('SOS Error', e.message || 'Network issue while starting SOS.');
     } finally {
       setLoading(false);
     }
   };
 
-  const startLocationSharing = (alertId) => {
-    // TODO: Implement real GPS location sharing
-    timerRef.current = setInterval(async () => {
-      try {
-        // Mock location for now - replace with real GPS
-        const lat = -26.2041 + Math.random() * 0.001;
-        const lon = 28.0473 + Math.random() * 0.001;
-        
-        await fetch(`${BASE_URL}/api/alerts/${alertId}/locations`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // TODO: Add Authorization header
-          },
-          body: JSON.stringify({
-            lat,
-            lon,
-            accuracy: 20,
-            timestamp: new Date().toISOString(),
-          }),
-        });
-
-        // In-app friends location share (latest location)
-        try {
-          await apiFetch('/api/social/location/update/', {
-            method: 'POST',
-            body: { lat, lon, accuracy: 20 },
-          });
-        } catch (_) {}
-      } catch (error) {
-        console.log('Location update failed:', error);
-      }
-    }, 5000); // Update every 5 seconds
+  const startSOS = () => {
+    Alert.alert('Start SOS', 'This will start active emergency sharing.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Start', style: 'destructive', onPress: activateSOS },
+    ]);
   };
 
-  const cancelSOS = () => {
-    Alert.alert(
-      'Cancel SOS',
-      'Are you sure you want to cancel the emergency SOS?',
-      [
-        { text: 'No, Keep Active', style: 'cancel' },
-        { text: 'Cancel SOS', style: 'destructive', onPress: () => {
-          if (timerRef.current) clearInterval(timerRef.current);
-          timerRef.current = null;
-          setAlert(null);
-          setLocationStatus('Ready');
-        }},
-      ]
-    );
-  };
-
-  const checkIn = async () => {
+  const sendCheckIn = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/alerts`, {
+      const response = await apiFetch('/api/alerts', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // TODO: Add Authorization header
-        },
-        body: JSON.stringify({
+        body: {
           severity_level: 1,
           trigger_count: 1,
           trigger_source: 'checkin',
-          message: 'Ngifikile! (I have arrived)',
-        }),
+          message: 'Arrival check-in',
+        },
       });
 
-      if (response.ok) {
-        Alert.alert('Check-in Sent', 'Your location has been shared with your contacts.');
-      } else {
-        const error = await response.json();
-        Alert.alert('Error', error.message || 'Check-in failed');
+      if (!response.ok) {
+        throw new Error('Check-in could not be sent.');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Network error. Please try again.');
+
+      Alert.alert('Check-in sent', 'Your trusted circle can see your update.');
+    } catch (e) {
+      Alert.alert('Check-in error', e.message || 'Network issue while checking in.');
     } finally {
       setLoading(false);
     }
   };
 
+  const cancelSOS = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setAlertData(null);
+    setStatusText('Safe and online');
+  };
+
   const shareLocation = async () => {
-    if (!alert) return;
-    
-    const text = encodeURIComponent(
-      `SOS – I need help. Track me live: ${alert.share_url}`
-    );
-    
+    if (!alertData?.share_url) return;
+
+    const text = encodeURIComponent(`SOS - I need help. Track me live: ${alertData.share_url}`);
+
     try {
-      const canOpenWhatsApp = await Linking.canOpenURL('whatsapp://send');
-      if (canOpenWhatsApp) {
+      const hasWhatsApp = await Linking.canOpenURL('whatsapp://send');
+      if (hasWhatsApp) {
         await Linking.openURL(`whatsapp://send?text=${text}`);
       } else {
         await Linking.openURL(`sms:&body=${text}`);
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to open sharing app');
+    } catch (_) {
+      Alert.alert('Share failed', 'Could not open a sharing app.');
     }
   };
 
-  const openProfile = () => {
-    navigation.navigate('Profile');
-  };
+  const mapHeaderText = useMemo(() => {
+    if (activeTab === 'Trusted Circle') return 'You and your trusted circle';
+    if (activeTab === 'Events') return 'Nearby events and venues';
+    return 'Community hot spots near you';
+  }, [activeTab]);
 
-  const openContacts = () => {
-    navigation.navigate('Contacts');
-  };
+  const showFriendsOnMap = activeTab === 'Trusted Circle';
+  const mapExtraMarkers = useMemo(() => {
+    if (activeTab === 'Trusted Circle') return [];
+    return nearbyPlaces;
+  }, [activeTab, nearbyPlaces]);
 
-  const openAlerts = () => {
-    navigation.navigate('Alerts');
-  };
+  const happeningPlaces = useMemo(() => {
+    if (activeTab === 'Trusted Circle') return defaultPlaces;
+    return nearbyPlaces;
+  }, [activeTab, nearbyPlaces, defaultPlaces]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Demo Mode Banner */}
-      <View style={styles.demoBanner}>
-        <Text style={styles.demoBannerText}>🚀 Demo Mode - Frontend Showcase</Text>
-      </View>
-      
-      <View style={styles.header}>
-        <Text style={styles.greeting}>Hello!</Text>
-        <Text style={styles.status}>{locationStatus}</Text>
+    <ScreenShell scroll includeBottomInset={false}>
+      <View style={styles.heroCard}>
+        <Text style={styles.heroText}>Hey {profileName || 'there'}! What's happening near you?</Text>
+        <TouchableOpacity style={styles.exploreBtn} onPress={() => navigation.navigate('Map')}>
+          <Text style={styles.exploreText}>Explore Map</Text>
+          <Icon name="chevron-forward" size={16} color={palette.text} />
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.mainActions}>
-        {!alert ? (
-          <>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.sosButton]}
-              onPress={startSOS}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" size="large" />
-              ) : (
-                <>
-                  <Text style={styles.sosText}>SOS</Text>
-                  <Text style={styles.sosSubtext}>Emergency Help</Text>
-                </>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionButton, styles.checkinButton]}
-              onPress={checkIn}
-              disabled={loading}
-            >
-              <Text style={styles.checkinText}>Ngifikile</Text>
-              <Text style={styles.checkinSubtext}>Check-in</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <View style={styles.sosActive}>
-            <Text style={styles.sosActiveTitle}>SOS Active</Text>
-            <Text style={styles.sosActiveSubtitle}>
-              Emergency contacts notified
-            </Text>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.shareButton]}
-              onPress={shareLocation}
-            >
-              <Text style={styles.shareText}>Share Location</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.cancelButton]}
-              onPress={cancelSOS}
-            >
-              <Text style={styles.cancelText}>Cancel SOS</Text>
-            </TouchableOpacity>
+      {alertData ? (
+        <View style={styles.sosLiveCard}>
+          <View>
+            <Text style={styles.sosLiveTitle}>SOS is active</Text>
+            <Text style={styles.sosLiveSub}>{statusText}</Text>
           </View>
+          <View style={styles.sosActions}>
+            <TouchableOpacity style={styles.sosGhostBtn} onPress={shareLocation}><Text style={styles.sosGhostText}>Share</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.sosStopBtn} onPress={cancelSOS}><Text style={styles.sosStopText}>Stop</Text></TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.tabRow}>
+        {SECTION_TABS.map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            style={[styles.tabButton, activeTab === tab && styles.tabButtonActive]}
+            onPress={() => setActiveTab(tab)}
+          >
+            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={styles.mapCard}>
+        <Text style={styles.mapCardTitle}>{mapHeaderText}</Text>
+        <TrustedCircleMap
+          userLocation={mapUserLocation}
+          friendLocations={friendLocations}
+          extraMarkers={mapExtraMarkers}
+          showFriends={showFriendsOnMap}
+          showUserMarker
+          style={styles.mapWrap}
+          mapStyle={styles.map}
+        />
+      </View>
+
+      <View style={styles.actionGrid}>
+        <TouchableOpacity style={[styles.actionTile, styles.tileGreen]} onPress={sendCheckIn} disabled={loading}>
+          {loading ? <ActivityIndicator color={palette.text} /> : <Icon name="checkmark-circle" size={20} color={palette.text} />}
+          <Text style={styles.actionTitle}>Check In</Text>
+          <Text style={styles.actionSub}>Arrival update</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.actionTile, styles.tileBlue]} onPress={() => navigation.navigate('Friends')}>
+          <Icon name="person-add" size={20} color={palette.text} />
+          <Text style={styles.actionTitle}>Invite Friends</Text>
+          <Text style={styles.actionSub}>Build your circle</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionTile, styles.tileRed]}
+          onPress={alertData ? cancelSOS : startSOS}
+          disabled={loading}
+        >
+          <Icon name={alertData ? 'stop-circle' : 'warning'} size={20} color={palette.text} />
+          <Text style={styles.actionTitle}>{alertData ? 'Stop Alert' : 'Safety Alert'}</Text>
+          <Text style={styles.actionSub}>{alertData ? 'End SOS mode' : 'Trigger SOS'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.actionTile, styles.tileSlate]} onPress={() => navigation.navigate('Alerts')}>
+          <Icon name="flame" size={20} color={palette.text} />
+          <Text style={styles.actionTitle}>Trend Alerts</Text>
+          <Text style={styles.actionSub}>What's hot</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Friends Nearby</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('Friends')}><Text style={styles.sectionLink}>See all</Text></TouchableOpacity>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendsRow}>
+        {friendLocations.length > 0 ? friendLocations.map((loc) => (
+          <TouchableOpacity key={String(loc.user?.id)} style={styles.friendChip} onPress={() => navigation.navigate('FriendDetail', { username: loc.user?.username })}>
+            <View style={styles.friendAvatar}><Text style={styles.friendAvatarText}>{loc.user?.username?.charAt(0).toUpperCase()}</Text></View>
+            <Text style={styles.friendName}>@{loc.user?.username}</Text>
+            <Text style={styles.friendDistance}>Live</Text>
+          </TouchableOpacity>
+        )) : (
+          <Text style={{color: palette.textMuted, marginLeft: 6}}>No friends nearby.</Text>
+        )}
+      </ScrollView>
+
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Happening Now</Text>
+      </View>
+      <View style={styles.eventsRow}>
+        {placesLoading && activeTab !== 'Trusted Circle' ? (
+          <Text style={styles.eventsHint}>Loading nearby places…</Text>
+        ) : happeningPlaces.length > 0 ? (
+          happeningPlaces.slice(0, 2).map((place, i) => (
+            <TouchableOpacity key={place.id} style={[styles.eventCard, { backgroundColor: i === 0 ? '#143b57' : '#184a3e' }]}>
+              <View style={styles.eventOverlay} />
+              <Text style={styles.eventTitle}>{place.label}</Text>
+              <Text style={styles.eventSub}>{place.category === 'events' ? 'Event venue' : 'Nearby spot'}</Text>
+            </TouchableOpacity>
+          ))
+        ) : (
+          <Text style={styles.eventsHint}>
+            {activeTab === 'Trusted Circle'
+              ? 'Fetching nearby places…'
+              : placesError || 'No places nearby yet.'}
+          </Text>
         )}
       </View>
-
-      <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.quickButton} onPress={openProfile}>
-          <Text style={styles.quickButtonText}>Profile</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.quickButton} onPress={openContacts}>
-          <Text style={styles.quickButtonText}>Contacts</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.quickButton} onPress={openAlerts}>
-          <Text style={styles.quickButtonText}>Alerts</Text>
-        </TouchableOpacity>
-      </View>
-
-      {alert && (
-        <View style={styles.alertInfo}>
-          <Text style={styles.alertInfoText}>
-            Share this link with people who need to track you:
-          </Text>
-          <Text style={styles.alertLink}>{alert.share_url}</Text>
-        </View>
-      )}
-    </SafeAreaView>
+    </ScreenShell>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#111',
+  heroCard: {
+    marginTop: 4,
+    borderRadius: radius.lg,
+    backgroundColor: '#101f35',
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 14,
   },
-  demoBanner: {
-    backgroundColor: '#4caf50',
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: '#45a049',
+  heroText: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    fontSize: 26,
+    lineHeight: 34,
   },
-  demoBannerText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 30,
-  },
-  greeting: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 5,
-  },
-  status: {
-    fontSize: 16,
-    color: '#6cf',
-    fontWeight: '500',
-  },
-  mainActions: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  actionButton: {
-    width: width * 0.8,
-    height: 120,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  sosButton: {
-    backgroundColor: '#e53935',
-  },
-  checkinButton: {
-    backgroundColor: '#2196f3',
-  },
-  shareButton: {
-    backgroundColor: '#4caf50',
-  },
-  cancelButton: {
-    backgroundColor: '#ff9800',
-  },
-  sosText: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 5,
-  },
-  sosSubtext: {
-    fontSize: 16,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  checkinText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 5,
-  },
-  checkinSubtext: {
-    fontSize: 16,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  shareText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  cancelText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  sosActive: {
-    alignItems: 'center',
-  },
-  sosActiveTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#e53935',
-    marginBottom: 5,
-  },
-  sosActiveSubtitle: {
-    fontSize: 16,
-    color: '#ccc',
-    marginBottom: 20,
-  },
-  quickActions: {
+  exploreBtn: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: radius.pill,
+    backgroundColor: '#ff3147',
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 20,
-    paddingBottom: 30,
+    alignItems: 'center',
+    gap: 6,
   },
-  quickButton: {
-    backgroundColor: '#333',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    minWidth: 80,
+  exploreText: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    fontSize: 15,
+  },
+  sosLiveCard: {
+    marginTop: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#8d3a47',
+    backgroundColor: '#3b1823',
+    padding: 12,
+  },
+  sosLiveTitle: {
+    color: '#fff',
+    fontFamily: typography.heading,
+    fontSize: 16,
+  },
+  sosLiveSub: {
+    color: '#f5d9de',
+    marginTop: 2,
+    fontSize: 12,
+  },
+  sosActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  sosGhostBtn: {
+    borderWidth: 1,
+    borderColor: '#7b90a6',
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  sosGhostText: {
+    color: palette.text,
+    fontSize: 12,
+  },
+  sosStopBtn: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#8d3040',
+  },
+  sosStopText: {
+    color: '#fff',
+    fontFamily: typography.heading,
+    fontSize: 12,
+  },
+  tabRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    backgroundColor: '#0c1c30',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 4,
+    gap: 4,
+  },
+  tabButton: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabButtonActive: {
+    backgroundColor: '#162e48',
+  },
+  tabText: {
+    color: palette.textMuted,
+    fontSize: 12,
+    fontFamily: typography.heading,
+  },
+  tabTextActive: {
+    color: palette.text,
+  },
+  mapCard: {
+    marginTop: 10,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#0f2238',
+    padding: 12,
+  },
+  mapCardTitle: {
+    color: palette.text,
+    fontSize: 14,
+    fontFamily: typography.heading,
+    marginBottom: 8,
+  },
+  mapWrap: {
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    height: 170,
+  },
+  map: {
+    flex: 1,
+  },
+  actionGrid: {
+    marginTop: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  actionTile: {
+    width: '48%',
+    minHeight: 92,
+    borderRadius: radius.md,
+    padding: 12,
+    borderWidth: 1,
+    justifyContent: 'space-between',
+  },
+  tileGreen: {
+    backgroundColor: '#322037',
+    borderColor: '#a14555',
+  },
+  tileBlue: {
+    backgroundColor: '#1c2f49',
+    borderColor: '#3d628f',
+  },
+  tileRed: {
+    backgroundColor: '#4c1724',
+    borderColor: '#b94a5f',
+  },
+  tileSlate: {
+    backgroundColor: '#252f46',
+    borderColor: '#4f6287',
+  },
+  actionTitle: {
+    color: '#fff',
+    fontFamily: typography.heading,
+    fontSize: 16,
+  },
+  actionSub: {
+    color: '#d6e4ef',
+    fontSize: 12,
+  },
+  sectionHeaderRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  quickButtonText: {
+  sectionTitle: {
+    color: palette.text,
+    fontFamily: typography.heading,
+    fontSize: 28,
+  },
+  sectionLink: {
+    color: palette.info,
+    fontSize: 13,
+    fontFamily: typography.heading,
+  },
+  friendsRow: {
+    gap: 10,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  friendChip: {
+    width: 86,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#11293c',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+  },
+  friendAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#245170',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  friendAvatarText: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 18,
+    fontFamily: typography.heading,
   },
-  alertInfo: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+  friendName: {
+    marginTop: 8,
+    color: palette.text,
+    fontSize: 13,
+    fontFamily: typography.heading,
   },
-  alertInfoText: {
-    color: '#ccc',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 10,
+  friendDistance: {
+    marginTop: 2,
+    color: '#b8d7ee',
+    fontSize: 11,
   },
-  alertLink: {
-    color: '#6cf',
-    fontSize: 12,
-    textAlign: 'center',
+  eventsRow: {
+    marginTop: 8,
+    gap: 8,
+    marginBottom: 0,
+  },
+  eventCard: {
+    borderRadius: radius.lg,
+    padding: 14,
+    minHeight: 110,
+    justifyContent: 'flex-end',
+    borderWidth: 1,
+    borderColor: palette.border,
+    overflow: 'hidden',
+  },
+  eventOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  eventTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontFamily: typography.heading,
+  },
+  eventSub: {
+    color: '#d8e6f2',
+    marginTop: 3,
+    fontSize: 13,
+  },
+  eventsHint: {
+    color: palette.textMuted,
+    marginLeft: 6,
+    marginTop: 4,
+    lineHeight: 20,
   },
 });
 
 export default HomeScreen;
+

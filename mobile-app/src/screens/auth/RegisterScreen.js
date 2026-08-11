@@ -1,237 +1,191 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-  ActivityIndicator,
-  ScrollView,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { apiFetch, setTokens } from '../../api/client';
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { apiFetch, clearTokens, setDemoMode, setTokens } from '../../api/client';
+import ScreenShell from '../../components/ScreenShell';
+import { palette, radius, typography } from '../../theme/tokens';
 
 const RegisterScreen = ({ navigation }) => {
-  const [formData, setFormData] = useState({
-    username: '',
-    password: '',
-  });
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const submit = async () => {
-    if (!formData.username || !formData.password) {
-      Alert.alert('Error', 'Enter a username and password');
+    if (!username.trim() || !password.trim()) {
+      setError('Please complete all required fields.');
       return;
     }
+    if (password !== confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
+
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch('/api/accounts/auth/register/', {
         method: 'POST',
-        body: { username: formData.username, password: formData.password },
+        body: { username: username.trim(), password },
       });
       const data = await res.json();
-      if (!res.ok || !data?.tokens?.access) throw new Error(data?.detail || 'Registration failed');
+      if (!res.ok || !data?.tokens?.access) {
+        throw new Error(data?.detail || 'Registration failed.');
+      }
+      await setDemoMode(false);
       await setTokens({ access: data.tokens.access, refresh: data.tokens.refresh });
-      Alert.alert('Welcome', 'Account created successfully');
       navigation.replace('MainApp');
     } catch (e) {
-      Alert.alert('Error', e.message);
+      setError(e.message || 'Could not create account.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleInputChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleRegister = async () => {
-    // Static demo - bypass registration validation
-    if (!formData.firstName || !formData.lastName) {
-      Alert.alert('Demo Mode', 'Please enter at least your first and last name for demo');
-      return;
-    }
-
-    // Show success message and navigate to main app for demo
-    Alert.alert(
-      'Demo Mode',
-      'Registration bypassed for demo purposes. Welcome to Uvah?!',
-      [
-        {
-          text: 'Continue to App',
-          onPress: () => navigation.replace('MainApp'),
-        },
-      ]
-    );
-  };
-
-  const handleBackToLogin = () => {
-    navigation.navigate('Login');
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBackToLogin}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Join Uvah? for safety</Text>
-        </View>
+    <ScreenShell scroll>
+      <View style={styles.headerRow}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Text style={styles.backBtnText}>Back</Text>
+        </TouchableOpacity>
+      </View>
 
-        <View style={styles.form}>
-          <Text style={styles.sectionTitle}>Account</Text>
+      <Text style={styles.title}>Create your account</Text>
+      <Text style={styles.subtitle}>Start safer check-ins with people you trust.</Text>
 
-          <Text style={styles.label}>Username</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="your-username"
-            value={formData.username}
-            onChangeText={(value) => handleInputChange('username', value)}
-            autoCapitalize="none"
-          />
+      <View style={styles.card}>
+        <Text style={styles.label}>Username</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="pick a username"
+          placeholderTextColor={palette.textMuted}
+          autoCapitalize="none"
+          value={username}
+          onChangeText={setUsername}
+        />
 
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="••••••••"
-            value={formData.password}
-            onChangeText={(value) => handleInputChange('password', value)}
-            secureTextEntry
-          />
+        <Text style={styles.label}>Password</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="set a password"
+          placeholderTextColor={palette.textMuted}
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+        />
 
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={submit}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Create Account</Text>
-            )}
-          </TouchableOpacity>
+        <Text style={styles.label}>Confirm password</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="repeat your password"
+          placeholderTextColor={palette.textMuted}
+          secureTextEntry
+          value={confirm}
+          onChangeText={setConfirm}
+        />
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={handleBackToLogin}
-          >
-            <Text style={styles.secondaryButtonText}>
-              Already have an account? Sign in
-            </Text>
-          </TouchableOpacity>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          {/* Demo Mode Button */}
-          <TouchableOpacity
-            style={styles.demoButton}
-            onPress={() => navigation.replace('MainApp')}
-          >
-            <Text style={styles.demoButtonText}>
-              🚀 Demo Mode - Skip to App
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+        <TouchableOpacity style={styles.cta} onPress={submit} disabled={loading}>
+          {loading ? <ActivityIndicator color={palette.text} /> : <Text style={styles.ctaText}>Create Account</Text>}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.ghostBtn}
+          onPress={async () => {
+            await clearTokens();
+            await setDemoMode(true);
+            navigation.replace('MainApp');
+          }}
+        >
+          <Text style={styles.ghostText}>Skip for now (Demo)</Text>
+        </TouchableOpacity>
+      </View>
+    </ScreenShell>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#111',
+  headerRow: {
+    marginTop: 18,
+    marginBottom: 10,
   },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  header: {
-    alignItems: 'center',
-    paddingTop: 20,
-    paddingBottom: 30,
-  },
-  backButton: {
+  backBtn: {
     alignSelf: 'flex-start',
-    marginLeft: 20,
-    marginBottom: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
-  backButtonText: {
-    color: '#6cf',
-    fontSize: 16,
+  backBtnText: {
+    color: palette.text,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 5,
+    color: palette.text,
+    fontFamily: typography.display,
+    fontSize: 32,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#ccc',
+    color: palette.textMuted,
+    marginTop: 6,
+    marginBottom: 18,
+    fontSize: 14,
   },
-  form: {
-    paddingHorizontal: 30,
-    paddingBottom: 30,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#6cf',
-    marginTop: 20,
-    marginBottom: 15,
+  card: {
+    backgroundColor: palette.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 18,
   },
   label: {
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 8,
-    fontWeight: '500',
+    color: palette.textMuted,
+    fontSize: 13,
+    marginBottom: 6,
   },
   input: {
-    backgroundColor: '#333',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 20,
+    backgroundColor: palette.surfaceSoft,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#555',
-  },
-  primaryButton: {
-    backgroundColor: '#e53935',
-    borderRadius: 8,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  secondaryButton: {
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  secondaryButtonText: {
-    color: '#6cf',
-    fontSize: 16,
-  },
-  demoButton: {
-    backgroundColor: '#4caf50',
-    borderRadius: 8,
+    borderColor: palette.border,
+    color: palette.text,
+    paddingHorizontal: 12,
     paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 20,
-    borderWidth: 2,
-    borderColor: '#45a049',
-  },
-  demoButtonText: {
-    color: '#fff',
+    marginBottom: 14,
     fontSize: 16,
-    fontWeight: 'bold',
+  },
+  error: {
+    color: palette.danger,
+    marginBottom: 8,
+  },
+  cta: {
+    marginTop: 6,
+    minHeight: 52,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.accent,
+  },
+  ctaText: {
+    color: palette.text,
+    fontSize: 16,
+    fontFamily: typography.heading,
+  },
+  ghostBtn: {
+    marginTop: 12,
+    minHeight: 46,
+    borderRadius: radius.md,
+    borderColor: palette.border,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#162b3d',
+  },
+  ghostText: {
+    color: palette.info,
+    fontSize: 14,
   },
 });
 
