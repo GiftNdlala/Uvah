@@ -1,6 +1,7 @@
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.views.generic import TemplateView
+from django.db import transaction
 from rest_framework import status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,7 +21,22 @@ class CreateAlertView(APIView):
     def post(self, request):
         serializer = AlertCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        alert = serializer.save(user=request.user)
+
+        # An SOS is only useful if its recipients can immediately see a real
+        # location.  Save the first GPS point before notifying friends.
+        initial_location = request.data.get('initial_location')
+        initial_location_serializer = None
+        if serializer.validated_data.get('severity_level', 1) >= 2:
+            if not initial_location:
+                return Response({'detail': 'A current location is required to start an SOS.'}, status=status.HTTP_400_BAD_REQUEST)
+            location_serializer = LocationCreateSerializer(data=initial_location)
+            location_serializer.is_valid(raise_exception=True)
+            initial_location_serializer = location_serializer
+
+        with transaction.atomic():
+            alert = serializer.save(user=request.user)
+            if initial_location_serializer:
+                AlertLocation.objects.create(alert=alert, **initial_location_serializer.validated_data)
 
         try:
             from social.notify import notify_friends_checkin, notify_friends_sos
@@ -50,7 +66,13 @@ class AlertDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, alert_id: int):
-        alert = get_object_or_404(Alert, pk=alert_id, user=request.user)
+        alert = get_object_or_404(Alert, pk=alert_id)
+        if alert.user_id != request.user.id:
+            from social.models import Friendship
+
+            is_friend = Friendship.objects.filter(user=request.user, friend=alert.user).exists()
+            if not is_friend:
+                return Response({'detail': 'You do not have access to this alert.'}, status=status.HTTP_403_FORBIDDEN)
         return Response(AlertResponseSerializer(alert, context={'request': request}).data)
 
 

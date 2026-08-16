@@ -22,7 +22,7 @@ def notify_friends_sos(actor, alert):
             user=friend,
             notification_type='sos_alert',
             title='SOS Alert',
-            message=f'@{actor.username} activated an emergency SOS. Open Alerts to view.',
+            message=f'@{actor.username} activated an emergency SOS. Tap to view their live location.',
             related_entity_id=alert.id,
         )
 

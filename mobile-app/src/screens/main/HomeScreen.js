@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  NativeModules,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,10 +13,11 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { apiFetch } from '../../api/client';
+import { apiFetch, BASE_URL, getAccessToken } from '../../api/client';
 import ScreenShell from '../../components/ScreenShell';
 import TrustedCircleMap from '../../components/TrustedCircleMap';
 import { useFriendLocations } from '../../context/FriendLocationsContext';
+import { getFreshCurrentCoords } from '../../utils/location';
 import { palette, radius, typography } from '../../theme/tokens';
 
 
@@ -46,6 +49,14 @@ const HomeScreen = ({ navigation }) => {
             setProfileName(prof.first_name || prof.username || 'Friend');
             setAvatarUrl(prof.avatar_url || null);
           }
+          const activeAlertsResponse = await apiFetch('/api/alerts/my-alerts/?status=active');
+          if (activeAlertsResponse.ok) {
+            const activeAlerts = await activeAlertsResponse.json();
+            if (Array.isArray(activeAlerts) && activeAlerts[0]) {
+              setAlertData(activeAlerts[0]);
+              setStatusText('SOS active — sharing continues while the SOS service is running');
+            }
+          }
         } catch (_) {}
       };
       loadProfile();
@@ -58,25 +69,36 @@ const HomeScreen = ({ navigation }) => {
     };
   }, []);
 
-  const postLocation = async (alertId) => {
-    const lat = userLocation ? userLocation.latitude : -26.2041 + Math.random() * 0.001;
-    const lon = userLocation ? userLocation.longitude : 28.0473 + Math.random() * 0.001;
+  const { SOSLocationService } = NativeModules;
 
-    await apiFetch(`/api/alerts/${alertId}/locations`, {
+  const postLocation = async (alertId, coords = null) => {
+    const currentCoords = coords || await getFreshCurrentCoords();
+    const lat = currentCoords.latitude;
+    const lon = currentCoords.longitude;
+    const accuracy = currentCoords.accuracy ?? null;
+
+    const response = await apiFetch(`/api/alerts/${alertId}/locations`, {
       method: 'POST',
-      body: { lat, lon, accuracy: 20 },
+      body: { lat, lon, accuracy },
     });
+    if (!response.ok) throw new Error('Unable to send your SOS location.');
 
     try {
       await apiFetch('/api/social/location/update/', {
         method: 'POST',
-        body: { lat, lon, accuracy: 20 },
+        body: { lat, lon, accuracy },
       });
     } catch (_) {}
   };
 
-  const startLocationLoop = (alertId) => {
+  const startLocationLoop = async (alertId) => {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (Platform.OS === 'android' && SOSLocationService) {
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error('Your session has expired. Please sign in again.');
+      await SOSLocationService.start(alertId, BASE_URL, accessToken);
+      return;
+    }
     timerRef.current = setInterval(() => {
       postLocation(alertId).catch(() => null);
     }, 5000);
@@ -85,6 +107,8 @@ const HomeScreen = ({ navigation }) => {
   const activateSOS = async () => {
     setLoading(true);
     try {
+      setStatusText('Getting your current location…');
+      const initialCoords = await getFreshCurrentCoords();
       const response = await apiFetch('/api/alerts', {
         method: 'POST',
         body: {
@@ -92,6 +116,11 @@ const HomeScreen = ({ navigation }) => {
           trigger_count: 2,
           trigger_source: 'app',
           message: 'Emergency SOS activated',
+          initial_location: {
+            lat: initialCoords.latitude,
+            lon: initialCoords.longitude,
+            accuracy: initialCoords.accuracy ?? null,
+          },
         },
       });
 
@@ -102,7 +131,20 @@ const HomeScreen = ({ navigation }) => {
       const data = await response.json();
       setAlertData(data);
       setStatusText('SOS active and sharing live location');
-      startLocationLoop(data.id);
+      try {
+        await apiFetch('/api/social/location/update/', {
+          method: 'POST',
+          body: {
+            lat: initialCoords.latitude,
+            lon: initialCoords.longitude,
+            accuracy: initialCoords.accuracy ?? null,
+          },
+        });
+        await startLocationLoop(data.id);
+      } catch (locationError) {
+        await apiFetch(`/api/alerts/${data.id}/cancel/`, { method: 'POST' });
+        throw locationError;
+      }
     } catch (e) {
       Alert.alert('SOS Error', e.message || 'Network issue while starting SOS.');
     } finally {
@@ -142,11 +184,24 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  const cancelSOS = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
-    setAlertData(null);
-    setStatusText('Safe and online');
+  const cancelSOS = async () => {
+    if (!alertData?.id || loading) return;
+    setLoading(true);
+    try {
+      const response = await apiFetch(`/api/alerts/${alertData.id}/cancel/`, { method: 'POST' });
+      if (!response.ok) throw new Error('Could not stop the SOS alert.');
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
+      if (Platform.OS === 'android' && SOSLocationService) {
+        await SOSLocationService.stop();
+      }
+      setAlertData(null);
+      setStatusText('Safe and online');
+    } catch (error) {
+      Alert.alert('SOS still active', error.message || 'We could not confirm that your SOS was stopped.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const shareLocation = async () => {

@@ -70,6 +70,14 @@ export function coordsToRegion(coords, delta = 0.03) {
   };
 }
 
+export async function getFreshCurrentCoords() {
+  const allowed = await ensureLocationPermission();
+  if (!allowed) {
+    throw new Error('Location permission is required to start an SOS.');
+  }
+  return getCurrentCoords();
+}
+
 export function normalizeCoordinatePair(point) {
   if (!point) return null;
 

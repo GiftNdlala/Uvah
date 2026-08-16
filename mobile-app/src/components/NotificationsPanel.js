@@ -1,6 +1,8 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Modal,
   ScrollView,
   StyleSheet,
@@ -38,7 +40,21 @@ const NotificationsPanel = () => {
   };
 
   const onPressItem = async (item) => {
-    if (item.notification_type === 'sos_alert' || item.notification_type === 'checkin') {
+    if (item.notification_type === 'sos_alert') {
+      try {
+        const response = await apiFetch(`/api/alerts/${item.related_entity_id}`);
+        if (!response.ok) throw new Error('Unable to load SOS alert.');
+        const alert = await response.json();
+        if (!alert.share_url) throw new Error('Live location is unavailable.');
+        await Linking.openURL(alert.share_url);
+      } catch (_) {
+        Alert.alert('SOS unavailable', 'This SOS location is no longer available.');
+      }
+      closePanel();
+      await markRead(item.id);
+      return;
+    }
+    if (item.notification_type === 'checkin') {
       closePanel();
       navigation.navigate('Alerts');
       await markRead(item.id);
