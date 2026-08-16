@@ -4,10 +4,9 @@ import { navigationRef } from '../utils/navigationRef';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { isDemoMode } from '../api/client';
+import { hasStoredSession, restoreSession } from '../api/client';
 import { NotificationsProvider } from '../context/NotificationsContext';
 import { FriendLocationsProvider } from '../context/FriendLocationsContext';
 import NotificationsPanel from '../components/NotificationsPanel';
@@ -92,9 +91,7 @@ const AppNavigator = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const token = await AsyncStorage.getItem('uvah_access_token');
-        const demo = await isDemoMode();
-        setIsAuthenticated(Boolean(token) || demo);
+        setIsAuthenticated(await restoreSession());
       } catch (_) {
         setIsAuthenticated(false);
       } finally {
@@ -122,9 +119,7 @@ const AppNavigator = () => {
       ref={navigationRef}
       onStateChange={async () => {
         try {
-          const token = await AsyncStorage.getItem('uvah_access_token');
-          const demo = await isDemoMode();
-          setIsAuthenticated(Boolean(token) || demo);
+          setIsAuthenticated(await hasStoredSession());
         } catch (_) {}
       }}
     >

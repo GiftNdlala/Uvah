@@ -15,10 +15,7 @@ import { apiFetch } from '../../api/client';
 import ScreenShell from '../../components/ScreenShell';
 import TrustedCircleMap from '../../components/TrustedCircleMap';
 import { useFriendLocations } from '../../context/FriendLocationsContext';
-import { fetchNearbyPlaces } from '../../utils/places';
 import { palette, radius, typography } from '../../theme/tokens';
-
-const SECTION_TABS = ['Trusted Circle', 'Hot Spots', 'Events'];
 
 
 
@@ -27,13 +24,8 @@ const HomeScreen = ({ navigation }) => {
   const [alertData, setAlertData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState('Safe and online');
-  const [activeTab, setActiveTab] = useState('Trusted Circle');
   const [profileName, setProfileName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(null);
-  const [nearbyPlaces, setNearbyPlaces] = useState([]);
-  const [defaultPlaces, setDefaultPlaces] = useState([]);
-  const [placesLoading, setPlacesLoading] = useState(false);
-  const [placesError, setPlacesError] = useState(null);
   const timerRef = useRef(null);
 
   const { friendLocations, userLocation, refreshAll } = useFriendLocations();
@@ -59,57 +51,6 @@ const HomeScreen = ({ navigation }) => {
       loadProfile();
     }, [refreshAll]),
   );
-
-  useEffect(() => {
-    if (!userLocation) return undefined;
-    const controller = new AbortController();
-    fetchNearbyPlaces(userLocation.latitude, userLocation.longitude, 'hotspots', controller.signal)
-      .then((places) => {
-        setDefaultPlaces(places);
-      })
-      .catch(() => null);
-    return () => controller.abort();
-  }, [userLocation]);
-
-  useEffect(() => {
-    if (!userLocation || activeTab === 'Trusted Circle') {
-      setNearbyPlaces([]);
-      return undefined;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-    const category = activeTab === 'Events' ? 'events' : activeTab === 'Hot Spots' ? 'hotspots' : 'nightlife';
-
-    setPlacesLoading(true);
-    setPlacesError(null);
-    setNearbyPlaces([]);
-
-    fetchNearbyPlaces(userLocation.latitude, userLocation.longitude, category, controller.signal)
-      .then((places) => {
-        setNearbyPlaces(places);
-        if (!places.length) {
-          setPlacesError(
-            activeTab === 'Events'
-              ? 'No events venues found nearby. Try again later.'
-              : 'No places found nearby right now.',
-          );
-        }
-      })
-      .catch(() => {
-        setPlacesError('Could not load nearby places. Check your connection and try again.');
-        setNearbyPlaces([]);
-      })
-      .finally(() => {
-        clearTimeout(timeoutId);
-        setPlacesLoading(false);
-      });
-
-    return () => {
-      clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [userLocation, activeTab]);
 
   useEffect(() => {
     return () => {
@@ -225,27 +166,10 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  const mapHeaderText = useMemo(() => {
-    if (activeTab === 'Trusted Circle') return 'You and your trusted circle';
-    if (activeTab === 'Events') return 'Nearby events and venues';
-    return 'Community hot spots near you';
-  }, [activeTab]);
-
-  const showFriendsOnMap = activeTab === 'Trusted Circle';
-  const mapExtraMarkers = useMemo(() => {
-    if (activeTab === 'Trusted Circle') return [];
-    return nearbyPlaces;
-  }, [activeTab, nearbyPlaces]);
-
-  const happeningPlaces = useMemo(() => {
-    if (activeTab === 'Trusted Circle') return defaultPlaces;
-    return nearbyPlaces;
-  }, [activeTab, nearbyPlaces, defaultPlaces]);
-
   return (
     <ScreenShell scroll includeBottomInset={false}>
       <View style={styles.heroCard}>
-        <Text style={styles.heroText}>Hey {profileName || 'there'}! What's happening near you?</Text>
+        <Text style={styles.heroText}>Hey {profileName || 'there'}! Stay connected with your trusted circle.</Text>
         <TouchableOpacity style={styles.exploreBtn} onPress={() => navigation.navigate('Map')}>
           <Text style={styles.exploreText}>Explore Map</Text>
           <Icon name="chevron-forward" size={16} color={palette.text} />
@@ -265,25 +189,12 @@ const HomeScreen = ({ navigation }) => {
         </View>
       ) : null}
 
-      <View style={styles.tabRow}>
-        {SECTION_TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            style={[styles.tabButton, activeTab === tab && styles.tabButtonActive]}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
       <View style={styles.mapCard}>
-        <Text style={styles.mapCardTitle}>{mapHeaderText}</Text>
+        <Text style={styles.mapCardTitle}>You and your trusted circle</Text>
         <TrustedCircleMap
           userLocation={mapUserLocation}
           friendLocations={friendLocations}
-          extraMarkers={mapExtraMarkers}
-          showFriends={showFriendsOnMap}
+          showFriends
           showUserMarker
           style={styles.mapWrap}
           mapStyle={styles.map}
@@ -336,28 +247,6 @@ const HomeScreen = ({ navigation }) => {
         )}
       </ScrollView>
 
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>Happening Now</Text>
-      </View>
-      <View style={styles.eventsRow}>
-        {placesLoading && activeTab !== 'Trusted Circle' ? (
-          <Text style={styles.eventsHint}>Loading nearby places…</Text>
-        ) : happeningPlaces.length > 0 ? (
-          happeningPlaces.slice(0, 2).map((place, i) => (
-            <TouchableOpacity key={place.id} style={[styles.eventCard, { backgroundColor: i === 0 ? '#143b57' : '#184a3e' }]}>
-              <View style={styles.eventOverlay} />
-              <Text style={styles.eventTitle}>{place.label}</Text>
-              <Text style={styles.eventSub}>{place.category === 'events' ? 'Event venue' : 'Nearby spot'}</Text>
-            </TouchableOpacity>
-          ))
-        ) : (
-          <Text style={styles.eventsHint}>
-            {activeTab === 'Trusted Circle'
-              ? 'Fetching nearby places…'
-              : placesError || 'No places nearby yet.'}
-          </Text>
-        )}
-      </View>
     </ScreenShell>
   );
 };

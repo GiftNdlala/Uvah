@@ -289,6 +289,47 @@ export async function isDemoMode() {
   return value === '1';
 }
 
+async function refreshAccessToken(refreshToken) {
+  if (!refreshToken) return null;
+
+  const refreshRes = await fetch(`${BASE_URL}/api/accounts/auth/refresh/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh: refreshToken }),
+  });
+  if (!refreshRes.ok) return null;
+
+  const data = await refreshRes.json();
+  if (!data?.access) return null;
+
+  await setTokens({ access: data.access, refresh: data.refresh || refreshToken });
+  return data.access;
+}
+
+export async function restoreSession() {
+  if (await isDemoMode()) return true;
+
+  const [accessToken, refreshToken] = await AsyncStorage.multiGet([ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY])
+    .then((entries) => entries.map(([, value]) => value));
+  if (!accessToken && !refreshToken) return false;
+  if (!refreshToken) return Boolean(accessToken);
+
+  try {
+    const refreshedAccessToken = await refreshAccessToken(refreshToken);
+    if (refreshedAccessToken) return true;
+    await clearTokens();
+    return false;
+  } catch (_) {
+    // Keep a previously stored access token usable when the device starts offline.
+    return Boolean(accessToken);
+  }
+}
+
+export async function hasStoredSession() {
+  if (await isDemoMode()) return true;
+  return Boolean(await AsyncStorage.getItem(ACCESS_TOKEN_KEY));
+}
+
 export async function apiFetch(path, { method = 'GET', headers = {}, body } = {}) {
   if (await isDemoMode()) {
     return handleDemoApiFetch(path, { method, body });
@@ -312,16 +353,8 @@ export async function apiFetch(path, { method = 'GET', headers = {}, body } = {}
     const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
     if (refreshToken) {
       try {
-        const refreshRes = await fetch(`${BASE_URL}/api/accounts/auth/refresh/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh: refreshToken }),
-        });
-
-        if (refreshRes.ok) {
-          const data = await refreshRes.json();
-          await setTokens({ access: data.access, refresh: data.refresh || refreshToken });
-          token = data.access; // Use new token for retry
+        token = await refreshAccessToken(refreshToken);
+        if (token) {
           
           // Retry original request
           res = await fetch(`${BASE_URL}${path}`, {
@@ -362,15 +395,8 @@ export async function apiUpload(path, formData) {
     const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
     if (refreshToken) {
       try {
-        const refreshRes = await fetch(`${BASE_URL}/api/accounts/auth/refresh/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh: refreshToken }),
-        });
-        if (refreshRes.ok) {
-          const data = await refreshRes.json();
-          await setTokens({ access: data.access, refresh: data.refresh || refreshToken });
-          token = data.access;
+        token = await refreshAccessToken(refreshToken);
+        if (token) {
           res = await fetch(`${BASE_URL}${path}`, {
             method: 'POST',
             headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
