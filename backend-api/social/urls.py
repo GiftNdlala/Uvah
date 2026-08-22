@@ -10,6 +10,8 @@ from .views import (
     FriendsLocationsView,
     NotificationListView,
     MarkNotificationReadView,
+    RegisterPushTokenView,
+    UnregisterPushTokenView,
 )
 
 
@@ -24,5 +26,7 @@ urlpatterns = [
     path('location/friends/', FriendsLocationsView.as_view(), name='friends-locations'),
     path('notifications/', NotificationListView.as_view(), name='notifications-list'),
     path('notifications/<int:notification_id>/read/', MarkNotificationReadView.as_view(), name='notification-mark-read'),
+    path('push-tokens/register/', RegisterPushTokenView.as_view(), name='push-token-register'),
+    path('push-tokens/unregister/', UnregisterPushTokenView.as_view(), name='push-token-unregister'),
 ]
 

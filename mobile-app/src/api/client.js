@@ -1,11 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ENV } from '../config/env';
-import { reset } from '../utils/navigationRef';
+import { notifySessionExpired } from '../context/authSessionEvents';
 
 const BASE_URL = ENV.BASE_URL;
 const ACCESS_TOKEN_KEY = 'uvah_access_token';
 const REFRESH_TOKEN_KEY = 'uvah_refresh_token';
 const DEMO_MODE_KEY = 'uvah_demo_mode';
+const SESSION_REFRESH_TIMEOUT_MS = 12000;
 
 const demoState = {
   profile: {
@@ -292,11 +293,21 @@ export async function isDemoMode() {
 async function refreshAccessToken(refreshToken) {
   if (!refreshToken) return null;
 
-  const refreshRes = await fetch(`${BASE_URL}/api/accounts/auth/refresh/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh: refreshToken }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SESSION_REFRESH_TIMEOUT_MS);
+  let refreshRes;
+
+  try {
+    refreshRes = await fetch(`${BASE_URL}/api/accounts/auth/refresh/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh: refreshToken }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!refreshRes.ok) return null;
 
   const data = await refreshRes.json();
@@ -371,7 +382,7 @@ export async function apiFetch(path, { method = 'GET', headers = {}, body } = {}
     
     // If refresh failed or missing, logout
     await clearTokens();
-    reset({ index: 0, routes: [{ name: 'Login' }] });
+    notifySessionExpired();
   }
 
   return res;
@@ -404,6 +415,11 @@ export async function apiUpload(path, formData) {
           });
         }
       } catch (_) {}
+    }
+
+    if (res.status === 401) {
+      await clearTokens();
+      notifySessionExpired();
     }
   }
 

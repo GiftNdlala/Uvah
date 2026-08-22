@@ -3,10 +3,12 @@ import { ActivityIndicator, ImageBackground, StyleSheet, Text, TextInput, Toucha
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { apiFetch, clearTokens, setDemoMode, setTokens } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import { palette, radius, typography } from '../../theme/tokens';
 import ScreenShell from '../../components/ScreenShell';
 
 const LoginScreen = ({ navigation }) => {
+  const { setIsAuthenticated } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,7 +34,7 @@ const LoginScreen = ({ navigation }) => {
       }
       await setDemoMode(false);
       await setTokens({ access: data.tokens.access, refresh: data.tokens.refresh });
-      navigation.replace('MainApp');
+      setIsAuthenticated(true);
     } catch (e) {
       setError(e.message || 'Could not log in.');
     } finally {
@@ -95,7 +97,7 @@ const LoginScreen = ({ navigation }) => {
             onPress={async () => {
               await clearTokens();
               await setDemoMode(true);
-              navigation.replace('MainApp');
+              setIsAuthenticated(true);
             }}
           >
             <Icon name="flash" size={16} color={palette.text} />

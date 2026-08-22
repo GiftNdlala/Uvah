@@ -1,10 +1,22 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { apiFetch, clearTokens, setDemoMode, setTokens } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import ScreenShell from '../../components/ScreenShell';
 import { palette, radius, typography } from '../../theme/tokens';
 
+const getRegistrationError = (data) => {
+  if (typeof data?.detail === 'string') return data.detail;
+  if (typeof data?.message === 'string') return data.message;
+
+  const fieldError = Object.values(data || {}).find((value) => Array.isArray(value) && value[0]);
+  if (fieldError) return String(fieldError[0]);
+
+  return 'Registration failed. Please try again.';
+};
+
 const RegisterScreen = ({ navigation }) => {
+  const { setIsAuthenticated } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -30,11 +42,11 @@ const RegisterScreen = ({ navigation }) => {
       });
       const data = await res.json();
       if (!res.ok || !data?.tokens?.access) {
-        throw new Error(data?.detail || 'Registration failed.');
+        throw new Error(getRegistrationError(data));
       }
       await setDemoMode(false);
       await setTokens({ access: data.tokens.access, refresh: data.tokens.refresh });
-      navigation.replace('MainApp');
+      setIsAuthenticated(true);
     } catch (e) {
       setError(e.message || 'Could not create account.');
     } finally {
@@ -95,7 +107,7 @@ const RegisterScreen = ({ navigation }) => {
           onPress={async () => {
             await clearTokens();
             await setDemoMode(true);
-            navigation.replace('MainApp');
+            setIsAuthenticated(true);
           }}
         >
           <Text style={styles.ghostText}>Skip for now (Demo)</Text>

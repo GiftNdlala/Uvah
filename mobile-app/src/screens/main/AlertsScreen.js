@@ -70,7 +70,7 @@ const AlertsScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <ScreenShell>
+      <ScreenShell includeBottomInset={false}>
         <View style={styles.centered}>
           <ActivityIndicator color={palette.accent} />
           <Text style={styles.loadingText}>Loading alerts</Text>
@@ -80,7 +80,7 @@ const AlertsScreen = ({ navigation }) => {
   }
 
   return (
-    <ScreenShell>
+    <ScreenShell includeBottomInset={false}>
       <Text style={styles.title}>Alert Timeline</Text>
       <Text style={styles.subtitle}>Track active emergencies and check-ins in one stream.</Text>
 
@@ -275,4 +275,3 @@ const styles = StyleSheet.create({
 });
 
 export default AlertsScreen;
-

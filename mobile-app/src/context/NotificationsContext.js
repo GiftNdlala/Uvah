@@ -1,71 +1,187 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { apiFetch } from '../api/client';
 import { parseApiListResponse } from '../utils/apiData';
-import { displayNotification, requestNotificationPermission } from '../services/notificationService';
+import { navigate } from '../utils/navigationRef';
+import {
+  displayNotification,
+  loadDeliveredNotificationIds,
+  registerDeviceForPush,
+  rememberDeliveredNotificationIds,
+  subscribeToPushEvents,
+} from '../services/notificationService';
 
 const NotificationsContext = createContext(null);
+const POLL_INTERVAL_MS = 12000;
+const MAX_LOCAL_ALERTS_PER_POLL = 5;
 
 export const NotificationsProvider = ({ enabled, children }) => {
   const [notifications, setNotifications] = useState([]);
   const [panelOpen, setPanelOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const previousUnread = useRef(0);
+  const notificationsRef = useRef([]);
+  const refreshPromiseRef = useRef(null);
+  const pollInitializedRef = useRef(false);
+
+  const updateNotifications = useCallback((list) => {
+    notificationsRef.current = list;
+    setNotifications(list);
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!enabled) {
-      setNotifications([]);
+      updateNotifications([]);
       return [];
     }
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+
     setLoading(true);
-    try {
+    refreshPromiseRef.current = (async () => {
       const res = await apiFetch('/api/social/notifications/');
+      if (!res.ok) throw new Error(`Notification refresh failed (${res.status}).`);
       const list = await parseApiListResponse(res);
-      setNotifications(list);
+      updateNotifications(list);
       return list;
+    })();
+
+    try {
+      return await refreshPromiseRef.current;
     } catch (_) {
-      setNotifications([]);
-      return [];
+      // A temporary network failure must not erase the last known notification list.
+      return notificationsRef.current;
     } finally {
+      refreshPromiseRef.current = null;
       setLoading(false);
     }
-  }, [enabled]);
+  }, [enabled, updateNotifications]);
 
-  useEffect(() => {
-    requestNotificationPermission();
+  const markRead = useCallback(async (id) => {
+    if (!id) return;
+    updateNotifications(notificationsRef.current.map((item) => (
+      String(item.id) === String(id) ? { ...item, is_read: true } : item
+    )));
+    try {
+      const response = await apiFetch(`/api/social/notifications/${id}/read/`, { method: 'POST' });
+      if (!response.ok) throw new Error('Unable to mark notification read.');
+    } catch (_) {
+      await refresh();
+    }
+  }, [refresh, updateNotifications]);
+
+  const handleNotificationPress = useCallback(async (data = {}) => {
+    const notificationId = data.notification_id || data.id;
+    if (notificationId) await markRead(notificationId);
+
+    if (data.notification_type === 'sos_alert' && data.related_entity_id) {
+      try {
+        const response = await apiFetch(`/api/alerts/${data.related_entity_id}`);
+        if (!response.ok) throw new Error('SOS is unavailable.');
+        const alert = await response.json();
+        navigate('AlertDetail', { alert });
+      } catch (_) {
+        navigate('MainApp', { screen: 'Alerts' });
+      }
+      return;
+    }
+
+    if (data.notification_type === 'checkin') {
+      navigate('MainApp', { screen: 'Alerts' });
+      return;
+    }
+
+    if (data.notification_type === 'friend_request') {
+      setPanelOpen(true);
+    }
+  }, [markRead]);
+
+  const processNewNotifications = useCallback(async (list) => {
+    const deliveredIds = await loadDeliveredNotificationIds();
+    const listIds = list.map((item) => String(item.id));
+
+    if (!pollInitializedRef.current) {
+      pollInitializedRef.current = true;
+      // On first-ever setup, establish a baseline instead of alarming for old history.
+      if (deliveredIds.size === 0) {
+        await rememberDeliveredNotificationIds(listIds);
+        return;
+      }
+    }
+
+    const unseen = list
+      .filter((item) => !item.is_read && !deliveredIds.has(String(item.id)))
+      .sort((a, b) => {
+        if (a.notification_type === 'sos_alert' && b.notification_type !== 'sos_alert') return -1;
+        if (b.notification_type === 'sos_alert' && a.notification_type !== 'sos_alert') return 1;
+        return Number(b.id) - Number(a.id);
+      });
+
+    const localFallbacks = unseen
+      .filter((item) => !item.push_delivered_at)
+      .slice(0, MAX_LOCAL_ALERTS_PER_POLL);
+
+    for (const item of localFallbacks) {
+      await displayNotification(item.title, item.message, {
+        type: item.notification_type,
+        notificationId: item.id,
+        payload: {
+          related_entity_id: item.related_entity_id,
+          created_at: item.created_at,
+        },
+      });
+    }
+
+    await rememberDeliveredNotificationIds(listIds);
   }, []);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled) {
+      updateNotifications([]);
+      pollInitializedRef.current = false;
+      return undefined;
+    }
 
-    refresh();
-    const id = setInterval(async () => {
+    let active = true;
+    let timer = null;
+
+    const poll = async () => {
       const list = await refresh();
-      const unread = list.filter((n) => !n.is_read).length;
-      if (unread > previousUnread.current) {
-        const latest = list.find((n) => !n.is_read);
-        if (latest) {
-          displayNotification(latest.title, latest.message);
-        }
-      }
-      previousUnread.current = unread;
-    }, 12000);
+      if (active) await processNewNotifications(list);
+    };
 
-    return () => clearInterval(id);
-  }, [enabled, refresh]);
+    const scheduleNextPoll = () => {
+      timer = setTimeout(async () => {
+        await poll();
+        if (active) scheduleNextPoll();
+      }, POLL_INTERVAL_MS);
+    };
+
+    const pushUnsubscribe = subscribeToPushEvents({
+      onReceive: refresh,
+      onPress: handleNotificationPress,
+    });
+
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      poll().catch(() => {});
+      registerDeviceForPush().catch(() => {});
+    });
+
+    registerDeviceForPush().catch(() => {});
+    poll().finally(() => {
+      if (active) scheduleNextPoll();
+    });
+
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+      appStateSubscription.remove();
+      pushUnsubscribe();
+    };
+  }, [enabled, handleNotificationPress, processNewNotifications, refresh, updateNotifications]);
 
   const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.is_read).length,
+    () => notifications.filter((item) => !item.is_read).length,
     [notifications],
-  );
-
-  const markRead = useCallback(
-    async (id) => {
-      try {
-        await apiFetch(`/api/social/notifications/${id}/read/`, { method: 'POST' });
-      } catch (_) {}
-      await refresh();
-    },
-    [refresh],
   );
 
   const value = useMemo(
@@ -75,7 +191,10 @@ export const NotificationsProvider = ({ enabled, children }) => {
       unreadCount,
       loading,
       panelOpen,
-      openPanel: () => setPanelOpen(true),
+      openPanel: () => {
+        setPanelOpen(true);
+        refresh();
+      },
       closePanel: () => setPanelOpen(false),
       refresh,
       markRead,

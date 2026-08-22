@@ -3,9 +3,9 @@ import { StyleSheet, Text, View } from 'react-native';
 import NotificationBell from './NotificationBell';
 import { palette, radius, typography } from '../theme/tokens';
 
-const UvahBrandBar = ({ showNotifications = true }) => {
+const UvahBrandBar = ({ showNotifications = true, style }) => {
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, style]}>
       <View style={styles.glow} />
       <View style={styles.topRow}>
         <View style={styles.wordmarkRow}>

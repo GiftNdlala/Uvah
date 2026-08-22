@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
-import { navigationRef } from '../utils/navigationRef';
+import { flushPendingNavigations, navigationRef } from '../utils/navigationRef';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { hasStoredSession, restoreSession } from '../api/client';
 import { NotificationsProvider } from '../context/NotificationsContext';
 import { FriendLocationsProvider } from '../context/FriendLocationsContext';
+import { useAuth } from '../context/AuthContext';
 import NotificationsPanel from '../components/NotificationsPanel';
 
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -58,6 +58,7 @@ const MainTabNavigator = () => {
           headerShown: false,
           tabBarStyle: [
             styles.tabBar,
+            route.name === 'Map' && styles.mapTabBar,
             {
               height: styles.tabBar.height + insets.bottom,
               paddingBottom: styles.tabBar.paddingBottom + insets.bottom,
@@ -86,21 +87,7 @@ const MainTabNavigator = () => {
 };
 
 const AppNavigator = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        setIsAuthenticated(await restoreSession());
-      } catch (_) {
-        setIsAuthenticated(false);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkAuth();
-  }, []);
+  const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -117,22 +104,25 @@ const AppNavigator = () => {
     <NavigationContainer
       theme={navTheme}
       ref={navigationRef}
-      onStateChange={async () => {
-        try {
-          setIsAuthenticated(await hasStoredSession());
-        } catch (_) {}
-      }}
+      onReady={flushPendingNavigations}
     >
       <NotificationsProvider enabled={isAuthenticated}>
       <FriendLocationsProvider enabled={isAuthenticated}>
-      <Stack.Navigator initialRouteName={isAuthenticated ? 'MainApp' : 'Login'} screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Register" component={RegisterScreen} />
-        <Stack.Screen name="MainApp" component={MainTabNavigator} />
-        <Stack.Screen name="FriendDetail" component={FriendDetailScreen} options={{ headerShown: true, title: 'Friend Detail' }} />
-        <Stack.Screen name="AlertDetail" component={AlertDetailScreen} options={{ headerShown: true, title: 'Alert Detail' }} />
-        <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ headerShown: true, title: 'Edit Profile' }} />
-        <Stack.Screen name="EditEmergencyContact" component={EditEmergencyContactScreen} options={{ headerShown: true, title: 'Emergency Contact' }} />
+      <Stack.Navigator key={isAuthenticated ? 'authenticated' : 'guest'} screenOptions={{ headerShown: false }}>
+        {isAuthenticated ? (
+          <>
+            <Stack.Screen name="MainApp" component={MainTabNavigator} />
+            <Stack.Screen name="FriendDetail" component={FriendDetailScreen} options={{ headerShown: true, title: 'Friend Detail' }} />
+            <Stack.Screen name="AlertDetail" component={AlertDetailScreen} options={{ headerShown: true, title: 'Alert Detail' }} />
+            <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ headerShown: true, title: 'Edit Profile' }} />
+            <Stack.Screen name="EditEmergencyContact" component={EditEmergencyContactScreen} options={{ headerShown: true, title: 'Emergency Contact' }} />
+          </>
+        ) : (
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+          </>
+        )}
       </Stack.Navigator>
       </FriendLocationsProvider>
       </NotificationsProvider>
@@ -148,6 +138,12 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: palette.border,
     backgroundColor: '#0a1728',
+  },
+  mapTabBar: {
+    position: 'absolute',
+    backgroundColor: 'rgba(3, 12, 24, 0.92)',
+    elevation: 24,
+    zIndex: 100,
   },
   tabItem: {
     justifyContent: 'center',

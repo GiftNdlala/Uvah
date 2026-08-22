@@ -15,13 +15,14 @@ import { useFocusEffect } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/Ionicons';
 import ScreenShell from '../../components/ScreenShell';
-import { apiFetch, apiUpload, clearTokens, setDemoMode } from '../../api/client';
+import { apiFetch, apiUpload } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import { useFriendLocations } from '../../context/FriendLocationsContext';
 import { resolveMediaUrl } from '../../utils/mediaUrl';
-import { reset as resetNavigation } from '../../utils/navigationRef';
 import { palette, radius, typography } from '../../theme/tokens';
 
 const ProfileScreen = ({ navigation }) => {
+  const { logout: endSession } = useAuth();
   const { refreshProfile } = useFriendLocations();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -114,9 +115,7 @@ const ProfileScreen = ({ navigation }) => {
         text: 'Log out',
         style: 'destructive',
         onPress: async () => {
-          await clearTokens();
-          await setDemoMode(false);
-          resetNavigation({ index: 0, routes: [{ name: 'Login' }] });
+          await endSession();
         },
       },
     ]);
@@ -124,7 +123,7 @@ const ProfileScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <ScreenShell>
+      <ScreenShell includeBottomInset={false}>
         <View style={styles.centered}>
           <ActivityIndicator color={palette.accent} />
           <Text style={styles.loadingText}>Loading profile</Text>
@@ -134,7 +133,7 @@ const ProfileScreen = ({ navigation }) => {
   }
 
   return (
-    <ScreenShell>
+    <ScreenShell includeBottomInset={false}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.headerCard}>
           <TouchableOpacity style={styles.avatarCircle} onPress={pickAvatar} disabled={uploadingAvatar}>

@@ -9,6 +9,7 @@ const ScreenShell = ({
   scroll = false,
   contentContainerStyle,
   style,
+  bodyStyle,
   showBrand = true,
   includeBottomInset = true,
 }) => {
@@ -21,7 +22,7 @@ const ScreenShell = ({
       <View style={styles.orbTop} />
       <View style={styles.orbBottom} />
 
-      <View style={styles.body}>
+      <View style={[styles.body, bodyStyle]}>
         {showBrand ? <UvahBrandBar /> : null}
 
         {scroll ? (

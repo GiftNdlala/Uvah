@@ -117,7 +117,7 @@ const ContactsScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <ScreenShell>
+      <ScreenShell includeBottomInset={false}>
         <View style={styles.centered}>
           <ActivityIndicator color={palette.accent} />
           <Text style={styles.loadingText}>Loading network</Text>
@@ -127,7 +127,7 @@ const ContactsScreen = ({ navigation }) => {
   }
 
   return (
-    <ScreenShell>
+    <ScreenShell includeBottomInset={false}>
       <View style={styles.headerBlock}>
         <Text style={styles.title}>Trusted Circle</Text>
         <Text style={styles.subtitle}>Find, invite, and control who sees your live location.</Text>

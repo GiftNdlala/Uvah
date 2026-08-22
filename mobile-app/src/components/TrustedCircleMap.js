@@ -14,6 +14,7 @@ const TrustedCircleMap = ({
   showFriends = true,
   showUserMarker = true,
   focusedLocation,
+  showsMyLocationButton = true,
 }) => {
   const mapRef = useRef(null);
   const latestMapMarkers = useRef([]);
@@ -266,7 +267,7 @@ const TrustedCircleMap = ({
         style={[styles.map, mapStyle]}
         initialRegion={initialRegion}
         showsUserLocation={showsUserLocation && hasUserCoords}
-        showsMyLocationButton={showsUserLocation && hasUserCoords}
+        showsMyLocationButton={showsMyLocationButton && showsUserLocation && hasUserCoords}
         showsCompass
         zoomControlEnabled
         toolbarEnabled={false}

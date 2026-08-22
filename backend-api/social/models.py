@@ -56,9 +56,38 @@ class Notification(models.Model):
     is_read = models.BooleanField(default=False)
     related_entity_id = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    push_attempts = models.PositiveSmallIntegerField(default=0)
+    push_delivered_at = models.DateTimeField(null=True, blank=True)
+    push_next_attempt_at = models.DateTimeField(null=True, blank=True)
+    push_last_error = models.TextField(blank=True, default='')
 
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.title}"
+
+
+class PushDevice(models.Model):
+    PLATFORM_ANDROID = 'android'
+    PLATFORM_IOS = 'ios'
+    PLATFORM_CHOICES = [
+        (PLATFORM_ANDROID, 'Android'),
+        (PLATFORM_IOS, 'iOS'),
+    ]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='push_devices')
+    token = models.CharField(max_length=512, unique=True)
+    device_id = models.CharField(max_length=128)
+    platform = models.CharField(max_length=16, choices=PLATFORM_CHOICES)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'is_active'], name='social_push_user_active_idx'),
+        ]
+
+    def __str__(self):
+        return f"PushDevice<{self.user_id}:{self.platform}:{self.device_id}>"

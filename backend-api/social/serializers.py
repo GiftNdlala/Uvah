@@ -137,5 +137,14 @@ class UserLocationSerializer(serializers.ModelSerializer):
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = ['id', 'notification_type', 'title', 'message', 'is_read', 'related_entity_id', 'created_at']
+        fields = [
+            'id',
+            'notification_type',
+            'title',
+            'message',
+            'is_read',
+            'related_entity_id',
+            'created_at',
+            'push_delivered_at',
+        ]
 

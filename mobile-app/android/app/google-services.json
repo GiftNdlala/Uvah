@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "996673808034",
+    "project_id": "uvah-d677e",
+    "storage_bucket": "uvah-d677e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:996673808034:android:f2a47e5bb82fcc494ad9fb",
+        "android_client_info": {
+          "package_name": "com.uvahmobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDHEITIFd9RbbD1z_8Z3YMQtOSFAcQMU8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

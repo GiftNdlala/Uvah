@@ -6,7 +6,8 @@ from rest_framework.views import APIView
 
 from accounts.authentication import SimpleJWTAuthentication
 from .location_utils import upsert_user_location
-from .models import FriendRequest, Friendship, LiveShare, UserLocation, Notification
+from .models import FriendRequest, Friendship, LiveShare, UserLocation, Notification, PushDevice
+from .notify import notify_user
 from .serializers import (
     FriendRequestSerializer,
     FriendshipDetailSerializer,
@@ -60,7 +61,7 @@ class SendFriendRequestView(APIView):
         if created or not Notification.objects.filter(
             user=to_user, notification_type='friend_request', related_entity_id=fr.id
         ).exists():
-            Notification.objects.create(
+            notify_user(
                 user=to_user,
                 notification_type='friend_request',
                 title='New Friend Request',
@@ -104,7 +105,7 @@ class RespondFriendRequestView(APIView):
             LiveShare.objects.update_or_create(
                 owner=fr.to_user, viewer=fr.from_user, defaults={'is_active': True}
             )
-            Notification.objects.create(
+            notify_user(
                 user=fr.from_user,
                 notification_type='friend_accept',
                 title='Friend Request Accepted',
@@ -231,3 +232,62 @@ class MarkNotificationReadView(APIView):
             return Response({'ok': True})
         except Notification.DoesNotExist:
             return Response({'detail': 'Not found'}, status=404)
+
+
+class RegisterPushTokenView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SimpleJWTAuthentication]
+
+    @transaction.atomic
+    def post(self, request):
+        token = str(request.data.get('token', '')).strip()
+        device_id = str(request.data.get('device_id', '')).strip()
+        platform = str(request.data.get('platform', '')).strip().lower()
+        if not token or len(token) > 512:
+            return Response({'detail': 'A valid push token is required.'}, status=400)
+        if not device_id or len(device_id) > 128:
+            return Response({'detail': 'A valid device_id is required.'}, status=400)
+        if platform not in {PushDevice.PLATFORM_ANDROID, PushDevice.PLATFORM_IOS}:
+            return Response({'detail': 'platform must be android or ios.'}, status=400)
+
+        PushDevice.objects.filter(
+            user=request.user,
+            device_id=device_id,
+        ).exclude(token=token).update(is_active=False)
+
+        device, _ = PushDevice.objects.update_or_create(
+            token=token,
+            defaults={
+                'user': request.user,
+                'device_id': device_id,
+                'platform': platform,
+                'is_active': True,
+            },
+        )
+
+        def deliver_pending():
+            from .push import deliver_pending_for_user
+            Notification.objects.filter(
+                user=request.user,
+                push_delivered_at__isnull=True,
+            ).update(push_next_attempt_at=None)
+            deliver_pending_for_user(request.user.id)
+
+        transaction.on_commit(deliver_pending)
+        return Response({
+            'ok': True,
+            'device_id': device.device_id,
+            'platform': device.platform,
+        })
+
+
+class UnregisterPushTokenView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SimpleJWTAuthentication]
+
+    def post(self, request):
+        token = str(request.data.get('token', '')).strip()
+        if not token:
+            return Response({'detail': 'token is required.'}, status=400)
+        PushDevice.objects.filter(user=request.user, token=token).update(is_active=False)
+        return Response({'ok': True})

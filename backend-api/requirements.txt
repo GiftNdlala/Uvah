@@ -8,3 +8,4 @@ PyJWT>=2.8.0
 Pillow>=10.0.0
 Pillow>=10.0.0
 gunicorn>=21.2,<24
+firebase-admin>=7.1,<8

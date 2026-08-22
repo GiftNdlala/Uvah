@@ -16,6 +16,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { apiFetch, BASE_URL, getAccessToken } from '../../api/client';
 import ScreenShell from '../../components/ScreenShell';
 import TrustedCircleMap from '../../components/TrustedCircleMap';
+import HomeMapReplacement from '../../components/HomeMapReplacement';
 import { useFriendLocations } from '../../context/FriendLocationsContext';
 import { getFreshCurrentCoords } from '../../utils/location';
 import { palette, radius, typography } from '../../theme/tokens';
@@ -246,13 +247,11 @@ const HomeScreen = ({ navigation }) => {
 
       <View style={styles.mapCard}>
         <Text style={styles.mapCardTitle}>You and your trusted circle</Text>
-        <TrustedCircleMap
-          userLocation={mapUserLocation}
+        <HomeMapReplacement
           friendLocations={friendLocations}
-          showFriends
-          showUserMarker
-          style={styles.mapWrap}
-          mapStyle={styles.map}
+          alertData={alertData}
+          navigation={navigation}
+          styleWrap={styles.mapWrap}
         />
       </View>
 
@@ -431,6 +430,15 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  mapDiagnostic: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0a1728',
+  },
+  mapDiagnosticText: {
+    color: palette.textMuted,
+    fontSize: 12,
   },
   actionGrid: {
     marginTop: 12,

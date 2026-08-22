@@ -37,16 +37,12 @@ class CreateAlertView(APIView):
             alert = serializer.save(user=request.user)
             if initial_location_serializer:
                 AlertLocation.objects.create(alert=alert, **initial_location_serializer.validated_data)
-
-        try:
             from social.notify import notify_friends_checkin, notify_friends_sos
 
             if alert.severity_level >= 2:
                 notify_friends_sos(request.user, alert)
             else:
                 notify_friends_checkin(request.user, alert)
-        except Exception:
-            pass
 
         return Response(AlertResponseSerializer(alert, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
